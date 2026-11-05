@@ -23,6 +23,20 @@ const CAPPED_STRING_FIELDS = [
   'eip712PrimaryType',
 ] as const;
 
+/**
+ * Negative-cache sentinel prefix stored in the hash column for a file we fetched
+ * but could not yet ingest because it uses unresolved `includes` (deferred to
+ * T10). Keyed on the file's blob sha so the SAME unchanged file is not re-fetched
+ * every poll. Safe to overload the hash column: a real `descriptorHash` is always
+ * `0x…` hex and can never equal a `skip:includes:` string, so the two never
+ * collide. A content/sha change or a future resolve overwrites it (self-heals).
+ */
+const INCLUDES_SKIP_PREFIX = 'skip:includes:';
+
+function includesSkipSentinel(sha: string): string {
+  return `${INCLUDES_SKIP_PREFIX}${sha}`;
+}
+
 /** Dependency bundle threaded through the sync entry points. */
 export interface SyncDeps {
   github: Pick<GitHubClient, 'headSha' | 'changedDescriptors' | 'getFile'>;
@@ -78,11 +92,11 @@ export function recordExceedsStringCap(rec: EntityRecord): boolean {
  *   3. normalize -> upsert each surviving record (source "github-sync") -> setHash -> "written"
  */
 export async function applyChangedFile(
-  file: { path: string; status: string },
+  file: { path: string; status: string; sha?: string },
   deps: SyncDeps,
   summary?: IngestSummary,
 ): Promise<ApplyOutcome> {
-  const { path, status } = file;
+  const { path, status, sha } = file;
   const { github, arkiv, db } = deps;
   const ref = deps.ref ?? 'master';
 
@@ -99,6 +113,16 @@ export async function applyChangedFile(
     return 'deleted';
   }
 
+  // 1b. Negative cache: if we already determined this exact file (by blob sha)
+  //     uses unresolved includes and cannot yet be ingested, skip WITHOUT a
+  //     fetch. Include-bearing files are near-universal in this registry (~475),
+  //     so without this every poll would burn ~475 getFile calls re-skipping the
+  //     same files against GitHub's 5000 req/hr budget. Deferred resolve: T10.
+  if (sha !== undefined && db.getHash(path) === includesSkipSentinel(sha)) {
+    if (summary) summary.skipped += 1;
+    return 'skipped';
+  }
+
   // 2. Fetch + loop guard. Hash the WHOLE file content object (the descriptor
   //    doc), compare to the last ingested hash for this path.
   const fetched = await github.getFile(path, ref);
@@ -108,18 +132,27 @@ export async function applyChangedFile(
     return 'skipped';
   }
 
+  // 2b. Unresolved includes: the sync path cannot resolve a fragment (normalize's
+  //     loadFragment is sync, getFile is async — deferred to T10). Store the
+  //     sha-keyed negative-cache sentinel so this file is not re-fetched next
+  //     poll, then skip. (This is a SEPARATE marker from the real content hash;
+  //     see INCLUDES_SKIP_PREFIX.)
+  const content = fetched.content as Record<string, unknown>;
+  if (typeof content['includes'] === 'string') {
+    if (sha !== undefined) db.setHash(path, includesSkipSentinel(sha));
+    // eslint-disable-next-line no-console
+    console.warn(`[sync] skipping ${path}: uses unresolved includes (deferred to T10)`);
+    if (summary) summary.skipped += 1;
+    return 'skipped';
+  }
+
   // 3. Normalize -> upsert each surviving record.
   let records: EntityRecord[];
   try {
-    records = normalizeDescriptor(
-      fetched.content as Record<string, unknown>,
-      path,
-      loadFragmentOpts(path),
-    );
+    records = normalizeDescriptor(content, path, loadFragmentOpts(path));
   } catch (err) {
-    // Normalize throws for includes-bearing descriptors in the sync path
-    // (loadFragment is synchronous, getFile is async — see Ruling in report),
-    // or for malformed descriptors. Do not crash the whole pass: skip the file.
+    // Normalize throws for malformed descriptors. Do not crash the whole pass:
+    // skip the file (hash not advanced so a later fix re-ingests).
     // eslint-disable-next-line no-console
     console.warn(`[sync] skipping ${path}: normalize failed: ${(err as Error).message}`);
     if (summary) summary.skipped += 1;
@@ -216,7 +249,11 @@ export async function runIngestOnce(deps: SyncDeps): Promise<IngestSummary> {
   // Thread the compare head as the ref every getFile reads at.
   const passDeps: SyncDeps = { ...deps, ref: head };
   for (const file of changed) {
-    await applyChangedFile({ path: file.path, status: file.status }, passDeps, summary);
+    await applyChangedFile(
+      { path: file.path, status: file.status, sha: file.sha },
+      passDeps,
+      summary,
+    );
   }
 
   db.setSyncCursor(head);

@@ -191,6 +191,74 @@ describe('applyChangedFile — good path (brief case / normal 2 records)', () =>
   });
 });
 
+describe('applyChangedFile — negative cache for unresolved includes (review fix)', () => {
+  // An include-bearing descriptor: normalize cannot resolve it in the sync path,
+  // so applyChangedFile stores a sha-keyed sentinel and must not re-fetch it.
+  function includeDescriptor() {
+    return { includes: '../common-fragment.json', display: { formats: {} } };
+  }
+
+  // A stateful db mock so a stored sentinel is observable on the next call.
+  function statefulDb() {
+    const hashes = new Map<string, string>();
+    return {
+      getSyncCursor: vi.fn(() => null),
+      setSyncCursor: vi.fn(),
+      getHash: vi.fn((p: string) => hashes.get(p) ?? null),
+      setHash: vi.fn((p: string, h: string) => void hashes.set(p, h)),
+    };
+  }
+
+  it('first poll stores skip:includes:<sha>; second poll with same sha skips WITHOUT fetching', async () => {
+    const path = 'registry/aave/calldata-Pool.json';
+    const sha = 'BLOB_SHA_123';
+    const content = includeDescriptor();
+    const db = statefulDb();
+    const github = {
+      headSha: vi.fn(async () => 'HEAD_SHA'),
+      changedDescriptors: vi.fn(async () => []),
+      getFile: vi.fn(async () => ({ content, sha })),
+    };
+    const arkiv = {
+      upsert: vi.fn(),
+      remove: vi.fn(),
+      queryMany: vi.fn(),
+    };
+    const deps = { github, arkiv, db } as unknown as SyncDeps;
+
+    // First poll: fetches, detects includes, stores the sentinel, skips.
+    const first = await applyChangedFile({ path, status: 'modified', sha }, deps);
+    expect(first).toBe('skipped');
+    expect(github.getFile).toHaveBeenCalledTimes(1);
+    expect(db.setHash).toHaveBeenCalledWith(path, `skip:includes:${sha}`);
+    expect(arkiv.upsert).not.toHaveBeenCalled();
+
+    // Second poll, same sha: must NOT fetch again (negative cache hit).
+    const second = await applyChangedFile({ path, status: 'modified', sha }, deps);
+    expect(second).toBe('skipped');
+    expect(github.getFile).toHaveBeenCalledTimes(1); // still 1 — no re-fetch
+  });
+
+  it('a new sha for the same path busts the negative cache (re-fetches)', async () => {
+    const path = 'registry/aave/calldata-Pool.json';
+    const content = includeDescriptor();
+    const db = statefulDb();
+    const github = {
+      headSha: vi.fn(async () => 'HEAD_SHA'),
+      changedDescriptors: vi.fn(async () => []),
+      getFile: vi.fn(async () => ({ content, sha: 'whatever' })),
+    };
+    const arkiv = { upsert: vi.fn(), remove: vi.fn(), queryMany: vi.fn() };
+    const deps = { github, arkiv, db } as unknown as SyncDeps;
+
+    await applyChangedFile({ path, status: 'modified', sha: 'SHA_A' }, deps);
+    expect(github.getFile).toHaveBeenCalledTimes(1);
+    // Different sha => sentinel key differs => cache miss => fetch again.
+    await applyChangedFile({ path, status: 'modified', sha: 'SHA_B' }, deps);
+    expect(github.getFile).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('runIngestOnce', () => {
   it('bootstraps from head when cursor is null, then advances cursor', async () => {
     const { deps, github, db } = makeDeps({ content: {} });
