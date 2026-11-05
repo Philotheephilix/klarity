@@ -1,0 +1,536 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import crypto from 'node:crypto';
+import { privateKeyToAccount } from 'viem/accounts';
+import { buildServer, type ServerDeps } from '../src/server.js';
+import { domain, types, type DescriptorWriteMessage } from '../src/auth.js';
+import { descriptorHash } from '../src/hash.js';
+import type { Config } from '../src/config.js';
+
+// Anvil account #0 — throwaway test key, never a real wallet.
+const TEST_PK =
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const account = privateKeyToAccount(TEST_PK);
+const SIGNER_LOWER = account.address.toLowerCase();
+
+const WEBHOOK_SECRET = 'test-webhook-secret';
+
+// A minimal calldata descriptor yielding exactly one EntityRecord.
+function oneRecordDescriptor() {
+  return {
+    $schema: 'https://eips.ethereum.org/assets/eip-7730/erc7730-v1.schema.json',
+    context: {
+      contract: {
+        deployments: [
+          { chainId: 1, address: '0xAbCdEf0000000000000000000000000000000001' },
+        ],
+      },
+    },
+    metadata: { owner: 'Aave' },
+    display: { formats: { 'transfer(address,uint256)': { intent: 'Transfer' } } },
+  };
+}
+
+function cfg(wallets: string[]): Config {
+  return {
+    arkiv: { privateKey: '', rpcUrl: '', wsUrl: '', chainId: 7794095 },
+    github: {
+      token: '',
+      botLogin: '',
+      upstreamOwner: '',
+      upstreamRepo: '',
+      webhookSecret: WEBHOOK_SECRET,
+    },
+    authorizedWallets: new Set(wallets.map((w) => w.toLowerCase())),
+    pollIntervalMs: 60000,
+    dbPath: ':memory:',
+    port: 3000,
+  } as Config;
+}
+
+// A deps bundle with vi.fn mocks for arkiv/github and a stateful db.
+function makeDeps(opts: {
+  wallets?: string[];
+  queryOneRow?: Record<string, unknown> | null;
+  queryManyRows?: Record<string, unknown>[];
+  nonceUsed?: Set<string>;
+  deliveries?: Set<string>;
+} = {}) {
+  const nonceUsed = opts.nonceUsed ?? new Set<string>();
+  const deliveries = opts.deliveries ?? new Set<string>();
+  const arkiv = {
+    queryOne: vi.fn(async () => opts.queryOneRow ?? null),
+    queryMany: vi.fn(async () => opts.queryManyRows ?? []),
+    upsert: vi.fn(async () => ({
+      entityKey: '0xentitykey',
+      txHash: '0xtxhash',
+      created: true,
+    })),
+    remove: vi.fn(async () => ({ txHash: '0xremovetx' })),
+  };
+  const github = {
+    openDescriptorPR: vi.fn(async () => 'https://github.com/ef/registry/pull/1'),
+    getFile: vi.fn(async () => ({ content: {}, sha: 'BLOB' })),
+  };
+  const db = {
+    isNonceUsed: vi.fn((signer: string, nonce: string) =>
+      nonceUsed.has(`${signer}:${nonce}`),
+    ),
+    markNonceUsed: vi.fn((signer: string, nonce: string) => {
+      const key = `${signer}:${nonce}`;
+      if (nonceUsed.has(key)) return false;
+      nonceUsed.add(key);
+      return true;
+    }),
+    wasDelivery: vi.fn((id: string) => deliveries.has(id)),
+    markDelivery: vi.fn((id: string) => void deliveries.add(id)),
+    getSyncCursor: vi.fn(() => null),
+    setSyncCursor: vi.fn(),
+    getHash: vi.fn(() => null),
+    setHash: vi.fn(),
+  };
+  const config = cfg(opts.wallets ?? [SIGNER_LOWER]);
+  const deps = { arkiv, github, db, config } as unknown as ServerDeps;
+  return { deps, arkiv, github, db, config };
+}
+
+async function signMessage(
+  msg: DescriptorWriteMessage,
+): Promise<`0x${string}`> {
+  return account.signTypedData({
+    domain,
+    types,
+    primaryType: 'DescriptorWrite',
+    message: msg,
+  });
+}
+
+function sign(secret: string, body: string): string {
+  return 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
+}
+
+describe('GET query routes', () => {
+  it('returns a seeded descriptor for an identity lookup', async () => {
+    const row = { $key: '0xkey', chainId: 1, selector: '0x12345678' };
+    const { deps, arkiv } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xAbC/0x12345678',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ chainId: 1 });
+    expect(arkiv.queryOne).toHaveBeenCalledWith({
+      chainId: 1,
+      contract: '0xabc',
+      selector: '0x12345678',
+    });
+    await app.close();
+  });
+
+  it('unknown identity -> 404', async () => {
+    const { deps } = makeDeps({ queryOneRow: null });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0xdeadbeef',
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it('contract lookup returns all formats', async () => {
+    const rows = [{ $key: '0x1' }, { $key: '0x2' }];
+    const { deps, arkiv } = makeDeps({ queryManyRows: rows });
+    const app = buildServer(deps);
+    const res = await app.inject({ method: 'GET', url: '/descriptors/1/0xabc' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toHaveLength(2);
+    expect(arkiv.queryMany).toHaveBeenCalledWith({ chainId: 1, contract: '0xabc' });
+    await app.close();
+  });
+
+  it('browse passes through known filters and ignores unknown params', async () => {
+    const { deps, arkiv } = makeDeps({ queryManyRows: [] });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors?entityName=aave&intent=Transfer&bogus=x',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(arkiv.queryMany).toHaveBeenCalledWith({
+      entityName: 'aave',
+      intent: 'Transfer',
+    });
+    await app.close();
+  });
+
+  it('nonce endpoint returns a fresh decimal string nonce', async () => {
+    const { deps, db } = makeDeps();
+    const app = buildServer(deps);
+    const res = await app.inject({ method: 'GET', url: `/nonce/${SIGNER_LOWER}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { nonce: string };
+    expect(typeof body.nonce).toBe('string');
+    expect(BigInt(body.nonce)).toBeGreaterThan(0n);
+    expect(db.isNonceUsed).toHaveBeenCalled();
+    await app.close();
+  });
+});
+
+describe('POST /descriptors — signed write', () => {
+  it('valid allowlisted signature: upsert + PR, returns entityKey/txHash/prUrl', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps, arkiv, github } = makeDeps({ wallets: [SIGNER_LOWER] });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 1n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { entityKey: string; txHash: string; prUrl: string };
+    expect(body.entityKey).toBe('0xentitykey');
+    expect(body.prUrl).toBe('https://github.com/ef/registry/pull/1');
+
+    expect(arkiv.upsert).toHaveBeenCalledTimes(1);
+    expect(arkiv.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: 1 }),
+      expect.objectContaining({
+        source: 'authorized-write',
+        authorizedBy: SIGNER_LOWER,
+      }),
+    );
+    expect(github.openDescriptorPR).toHaveBeenCalledWith(
+      expect.objectContaining({ wallet: SIGNER_LOWER, action: 'create' }),
+    );
+    await app.close();
+  });
+
+  it('bad signature (signer not allowlisted) -> 401 UNAUTHORIZED', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps, arkiv } = makeDeps({ wallets: [] }); // empty allowlist
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 2n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ error: 'UNAUTHORIZED' });
+    expect(arkiv.upsert).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('HASH_MISMATCH -> 400 {error:HASH_MISMATCH}', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps } = makeDeps({ wallets: [SIGNER_LOWER] });
+    const app = buildServer(deps);
+    // Sign over a DIFFERENT descriptor hash than the body we send.
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash({ different: true }),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 3n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'HASH_MISMATCH' });
+    await app.close();
+  });
+
+  it('EXPIRED deadline -> 400 {error:EXPIRED}', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps } = makeDeps({ wallets: [SIGNER_LOWER] });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) - 10),
+      nonce: 4n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'EXPIRED' });
+    await app.close();
+  });
+
+  it('REPLAY (reused nonce) -> 400 {error:REPLAY}', async () => {
+    const descriptor = oneRecordDescriptor();
+    const nonceUsed = new Set<string>();
+    const { deps } = makeDeps({ wallets: [SIGNER_LOWER], nonceUsed });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 7n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const payload = {
+      descriptor,
+      message: {
+        descriptorHash: msg.descriptorHash,
+        deadline: msg.deadline.toString(),
+        nonce: msg.nonce.toString(),
+        action: 'create',
+      },
+      signature,
+    };
+    const first = await app.inject({ method: 'POST', url: '/descriptors', payload });
+    expect(first.statusCode).toBe(200);
+    const second = await app.inject({ method: 'POST', url: '/descriptors', payload });
+    expect(second.statusCode).toBe(400);
+    expect(second.json()).toEqual({ error: 'REPLAY' });
+    await app.close();
+  });
+
+  it('out-of-union action from a valid signer -> 400 (T6 handoff)', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER] });
+    const app = buildServer(deps);
+    // Sign a message whose action is NOT in the known union. verifyWrite
+    // recovers the signer fine (string type), the route rejects the action.
+    const msg = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 8n,
+      action: 'destroy' as unknown as 'create',
+    };
+    const signature = await signMessage(msg as DescriptorWriteMessage);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'destroy',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(arkiv.upsert).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('malformed non-numeric nonce -> 400, not 500', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps } = makeDeps({ wallets: [SIGNER_LOWER] });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: descriptorHash(descriptor),
+          deadline: '9999999999',
+          nonce: 'not-a-number',
+          action: 'create',
+        },
+        signature: '0xdeadbeef',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('delete: removes entity + opens removal PR', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps, arkiv, github } = makeDeps({
+      wallets: [SIGNER_LOWER],
+      queryOneRow: { $key: '0xexisting' },
+    });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 9n,
+      action: 'delete',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'delete',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      txHash: '0xremovetx',
+      prUrl: 'https://github.com/ef/registry/pull/1',
+    });
+    expect(arkiv.remove).toHaveBeenCalledWith('0xexisting');
+    expect(github.openDescriptorPR).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'delete', entityKey: '0xexisting' }),
+    );
+    await app.close();
+  });
+});
+
+describe('POST /webhooks/github', () => {
+  function pushPayload() {
+    return {
+      after: 'HEADSHA',
+      commits: [
+        {
+          added: ['registry/aave/calldata-Pool.json'],
+          modified: [],
+          removed: [],
+        },
+      ],
+    };
+  }
+
+  it('wrong signature -> 401', async () => {
+    const { deps } = makeDeps();
+    const app = buildServer(deps);
+    const bodyStr = JSON.stringify(pushPayload());
+    const res = await app.inject({
+      method: 'POST',
+      url: '/webhooks/github',
+      headers: {
+        'content-type': 'application/json',
+        'x-github-delivery': 'd1',
+        'x-hub-signature-256': sign('WRONG-SECRET', bodyStr),
+      },
+      payload: bodyStr,
+    });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('correct signature -> 202 and runs ingest', async () => {
+    // getFile returns an includes-free simple descriptor so applyChangedFile
+    // reaches the write branch; we only assert the ingest path ran (getFile).
+    const { deps, github } = makeDeps();
+    github.getFile = vi.fn(async () => ({
+      content: oneRecordDescriptor(),
+      sha: 'BLOB',
+    }));
+    const app = buildServer(deps);
+    const bodyStr = JSON.stringify(pushPayload());
+    const res = await app.inject({
+      method: 'POST',
+      url: '/webhooks/github',
+      headers: {
+        'content-type': 'application/json',
+        'x-github-delivery': 'd2',
+        'x-hub-signature-256': sign(WEBHOOK_SECRET, bodyStr),
+      },
+      payload: bodyStr,
+    });
+    expect(res.statusCode).toBe(202);
+    expect(github.getFile).toHaveBeenCalledWith(
+      'registry/aave/calldata-Pool.json',
+      'HEADSHA',
+    );
+    await app.close();
+  });
+
+  it('replayed delivery id -> 200 no-op, ingest NOT re-run', async () => {
+    const deliveries = new Set<string>();
+    const { deps, github } = makeDeps({ deliveries });
+    github.getFile = vi.fn(async () => ({
+      content: oneRecordDescriptor(),
+      sha: 'BLOB',
+    }));
+    const app = buildServer(deps);
+    const bodyStr = JSON.stringify(pushPayload());
+    const headers = {
+      'content-type': 'application/json',
+      'x-github-delivery': 'd3',
+      'x-hub-signature-256': sign(WEBHOOK_SECRET, bodyStr),
+    };
+    const first = await app.inject({
+      method: 'POST',
+      url: '/webhooks/github',
+      headers,
+      payload: bodyStr,
+    });
+    expect(first.statusCode).toBe(202);
+    const callsAfterFirst = github.getFile.mock.calls.length;
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/webhooks/github',
+      headers,
+      payload: bodyStr,
+    });
+    expect(second.statusCode).toBe(200);
+    // No further ingest on the replay.
+    expect(github.getFile.mock.calls.length).toBe(callsAfterFirst);
+    await app.close();
+  });
+});
