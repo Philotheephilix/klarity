@@ -1,0 +1,33 @@
+{
+  "name": "klarity",
+  "version": "0.1.0",
+  "description": "Mirrors an Ethereum clear-signing registry into Arkiv",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "test": "vitest run",
+    "import": "node dist/import.js"
+  },
+  "dependencies": {
+    "@arkiv-network/sdk": "^1.0.1",
+    "@fastify/sensible": "^6",
+    "@octokit/plugin-retry": "^7",
+    "@octokit/plugin-throttling": "^9",
+    "@octokit/rest": "^21",
+    "better-sqlite3": "^12",
+    "canonicalize": "^2",
+    "dotenv": "^16",
+    "fastify": "^5",
+    "js-sha3": "^0.9",
+    "viem": "^2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7",
+    "@types/node": "^22",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "^2"
+  }
+}
