@@ -1,8 +1,10 @@
-import { keccak256 } from 'js-sha3';
+import sha3 from 'js-sha3';
 import { canonicalSignature, selectorOf } from './selector.js';
 import { inlineRefs } from './refs.js';
 import { resolveIncludes, type LoadFragment } from './includes.js';
 import type { EntityRecord } from './types.js';
+
+const { keccak256 } = sha3;
 
 export type { EntityRecord } from './types.js';
 

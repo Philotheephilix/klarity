@@ -1,4 +1,6 @@
-import { keccak256 } from 'js-sha3';
+import sha3 from 'js-sha3';
+
+const { keccak256 } = sha3;
 
 /**
  * Normalize an ERC-7730 function signature to its canonical form:

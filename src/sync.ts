@@ -1,0 +1,242 @@
+import type { GitHubClient, ChangedDescriptor } from './github.js';
+import type { ArkivClient } from './arkiv/client.js';
+import type { Db } from './db.js';
+import { descriptorHash } from './hash.js';
+import { normalizeDescriptor, type EntityRecord } from './normalize/normalize.js';
+
+/**
+ * Outcome of applying a single changed descriptor file.
+ * - `written`  — at least one record was normalized and upserted; hash advanced.
+ * - `skipped`  — loop guard hit (content byte-identical to what we last ingested),
+ *                or no record survived the write-time guards, or normalize failed.
+ * - `deleted`  — the file was removed upstream; its entities were deleted.
+ */
+export type ApplyOutcome = 'written' | 'skipped' | 'deleted';
+
+/** Max UTF-8 byte length an Arkiv `str` column accepts before `InvalidValueError`. */
+export const MAX_STRING_BYTES = 128;
+
+/** String fields that can blow past the 128-byte `str` cap on pathological descriptors. */
+const CAPPED_STRING_FIELDS = [
+  'functionSignature',
+  'functionName',
+  'eip712PrimaryType',
+] as const;
+
+/** Dependency bundle threaded through the sync entry points. */
+export interface SyncDeps {
+  github: Pick<GitHubClient, 'headSha' | 'changedDescriptors' | 'getFile'>;
+  arkiv: Pick<ArkivClient, 'upsert' | 'remove' | 'queryMany'>;
+  db: Pick<Db, 'getSyncCursor' | 'setSyncCursor' | 'getHash' | 'setHash'>;
+  /**
+   * Head ref `getFile` reads at. Normally the upstream compare head sha carried
+   * by `runIngestOnce`. Defaults to `'master'` when applyChangedFile is called
+   * standalone (e.g. in tests).
+   */
+  ref?: string;
+}
+
+/** Counts rolled up across a single ingest pass. */
+export interface IngestSummary {
+  written: number;
+  skipped: number;
+  deleted: number;
+  /** Records dropped at write time for exceeding the 128-byte str cap. */
+  oversizedRecords: number;
+  /** eip712 (chainId,contract,selector) identity collisions observed this pass. */
+  eip712Collisions: number;
+  /** Total changed descriptor files examined. */
+  files: number;
+}
+
+const UTF8 = new TextEncoder();
+
+function utf8Bytes(s: string): number {
+  return UTF8.encode(s).length;
+}
+
+/**
+ * GUARD 1 — 128-byte str cap. True if any capped string field on `rec` exceeds
+ * `MAX_STRING_BYTES` UTF-8 bytes. Such a record would make Arkiv throw
+ * `InvalidValueError` at write, so the writer layer (here) drops it rather than
+ * writing a corrupted/truncated signature a wallet would later display.
+ */
+export function recordExceedsStringCap(rec: EntityRecord): boolean {
+  for (const field of CAPPED_STRING_FIELDS) {
+    const v = rec[field];
+    if (typeof v === 'string' && utf8Bytes(v) > MAX_STRING_BYTES) return true;
+  }
+  return false;
+}
+
+/**
+ * Apply one changed descriptor file to Arkiv. See `ApplyOutcome`.
+ *
+ * State machine (per the T8 brief):
+ *   1. removed  -> query this file's entities by `sourcePath`, delete each -> "deleted"
+ *   2. loop guard: descriptorHash(content) === db.getHash(path) -> "skipped"
+ *   3. normalize -> upsert each surviving record (source "github-sync") -> setHash -> "written"
+ */
+export async function applyChangedFile(
+  file: { path: string; status: string },
+  deps: SyncDeps,
+  summary?: IngestSummary,
+): Promise<ApplyOutcome> {
+  const { path, status } = file;
+  const { github, arkiv, db } = deps;
+  const ref = deps.ref ?? 'master';
+
+  // 1. Removed upstream: delete every entity that came from this file.
+  //    queryMany is scoped by sourcePath; ArkivClient pins `.createdBy(registry
+  //    wallet)` INTERNALLY, so impostor entities are never in the result set.
+  if (status === 'removed') {
+    const rows = await arkiv.queryMany({ sourcePath: path });
+    for (const row of rows) {
+      const key = row.$key as `0x${string}`;
+      await arkiv.remove(key);
+    }
+    if (summary) summary.deleted += 1;
+    return 'deleted';
+  }
+
+  // 2. Fetch + loop guard. Hash the WHOLE file content object (the descriptor
+  //    doc), compare to the last ingested hash for this path.
+  const fetched = await github.getFile(path, ref);
+  const hash = descriptorHash(fetched.content);
+  if (hash === db.getHash(path)) {
+    if (summary) summary.skipped += 1;
+    return 'skipped';
+  }
+
+  // 3. Normalize -> upsert each surviving record.
+  let records: EntityRecord[];
+  try {
+    records = normalizeDescriptor(
+      fetched.content as Record<string, unknown>,
+      path,
+      loadFragmentOpts(path),
+    );
+  } catch (err) {
+    // Normalize throws for includes-bearing descriptors in the sync path
+    // (loadFragment is synchronous, getFile is async — see Ruling in report),
+    // or for malformed descriptors. Do not crash the whole pass: skip the file.
+    // eslint-disable-next-line no-console
+    console.warn(`[sync] skipping ${path}: normalize failed: ${(err as Error).message}`);
+    if (summary) summary.skipped += 1;
+    return 'skipped';
+  }
+
+  // Track eip712 identities we write this file so a same-file collision on
+  // (chainId,contract,selector) with a DIFFERENT primaryType can be detected.
+  const seenEip712 = new Map<string, string>();
+  let wrote = 0;
+
+  for (const rec of records) {
+    // GUARD 1: drop oversized-field records instead of throwing the whole file.
+    if (recordExceedsStringCap(rec)) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[sync] skipping record ${rec.chainId}/${rec.contract}/${rec.selector} in ${path}: ` +
+          `string field exceeds ${MAX_STRING_BYTES} bytes`,
+      );
+      if (summary) summary.oversizedRecords += 1;
+      continue;
+    }
+
+    // GUARD 2: eip712 selector identity collision. Upsert identity is only
+    // (chainId,contract,selector); two distinct primaryTypes whose 4-byte
+    // typeHash prefixes collide would clobber each other. Detect within this
+    // file and log/count; probability ~1/2^32 per contract (see Ruling).
+    if (rec.kind === 'eip712' && rec.eip712PrimaryType) {
+      const idKey = `${rec.chainId}:${rec.contract}:${rec.selector}`;
+      const prior = seenEip712.get(idKey);
+      if (prior !== undefined && prior !== rec.eip712PrimaryType) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[sync] eip712 selector collision in ${path} at ${idKey}: ` +
+            `"${prior}" vs "${rec.eip712PrimaryType}" — second write clobbers first`,
+        );
+        if (summary) summary.eip712Collisions += 1;
+      } else {
+        seenEip712.set(idKey, rec.eip712PrimaryType);
+      }
+    }
+
+    await arkiv.upsert(rec, { source: 'github-sync', contentHash: hash });
+    wrote += 1;
+  }
+
+  if (wrote === 0) {
+    // All records were dropped by the guards (or the descriptor had none).
+    // Do NOT advance the hash — a fixed future version should re-ingest.
+    if (summary) summary.skipped += 1;
+    return 'skipped';
+  }
+
+  db.setHash(path, hash);
+  if (summary) summary.written += 1;
+  return 'written';
+}
+
+/**
+ * Normalize options for the sync path. includes-bearing descriptors need a
+ * synchronous fragment loader, but `getFile` is async — so the sync path passes
+ * no loader and lets normalize throw (caught above). See Ruling in the report.
+ */
+function loadFragmentOpts(_path: string): Record<string, never> {
+  return {};
+}
+
+/**
+ * One ingest pass: read the stored cursor, fetch upstream head, diff, apply each
+ * changed descriptor, then advance the cursor to head. Returns a count summary.
+ *
+ * Bootstrap: when the cursor is null (fresh DB), `since` is set to the current
+ * head so the first pass diffs head..head (empty) and simply records the cursor.
+ * This avoids re-ingesting the entire registry on first boot (that bulk load is
+ * the separate `import` entry point). See Ruling.
+ */
+export async function runIngestOnce(deps: SyncDeps): Promise<IngestSummary> {
+  const { github, db } = deps;
+  const summary: IngestSummary = {
+    written: 0,
+    skipped: 0,
+    deleted: 0,
+    oversizedRecords: 0,
+    eip712Collisions: 0,
+    files: 0,
+  };
+
+  const head = await github.headSha();
+  const since = db.getSyncCursor() ?? head;
+
+  const changed: ChangedDescriptor[] = await github.changedDescriptors(since);
+  summary.files = changed.length;
+
+  // Thread the compare head as the ref every getFile reads at.
+  const passDeps: SyncDeps = { ...deps, ref: head };
+  for (const file of changed) {
+    await applyChangedFile({ path: file.path, status: file.status }, passDeps, summary);
+  }
+
+  db.setSyncCursor(head);
+  return summary;
+}
+
+/**
+ * Run `runIngestOnce` on a fixed interval. Returns a stop function that clears
+ * the timer. The first pass is scheduled (not run inline) so the caller stays
+ * non-blocking; errors in a pass are logged, never thrown out of the timer.
+ */
+export function startIngestLoop(deps: SyncDeps, intervalMs: number): () => void {
+  const tick = (): void => {
+    void runIngestOnce(deps).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`[sync] ingest pass failed: ${(err as Error).message}`);
+    });
+  };
+  const handle = setInterval(tick, intervalMs);
+  // Do not keep the event loop alive solely for the sync timer.
+  if (typeof handle.unref === 'function') handle.unref();
+  return () => clearInterval(handle);
+}
