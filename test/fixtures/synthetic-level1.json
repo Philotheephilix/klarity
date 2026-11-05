@@ -1,0 +1,6 @@
+{
+  "$schema": "../../specs/erc7730-v2.schema.json",
+  "includes": "synthetic-level2.json",
+  "level1Key": "from-level1",
+  "overrideKey": "level1-loses-to-level0"
+}

@@ -1,0 +1,6 @@
+{
+  "$schema": "../../specs/erc7730-v2.schema.json",
+  "level2Key": "from-level2",
+  "overrideKey": "level2-loses-to-all",
+  "display": { "formats": { "deepest()": { "intent": "FromLevel2", "fields": [] } } }
+}

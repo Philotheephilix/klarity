@@ -1,0 +1,7 @@
+{
+  "$schema": "../../specs/erc7730-v2.schema.json",
+  "includes": "synthetic-level1.json",
+  "context": { "contract": { "deployments": [{ "chainId": 1, "address": "0x0000000000000000000000000000000000000000" }] } },
+  "level0Key": "from-level0",
+  "overrideKey": "level0-wins"
+}
