@@ -108,6 +108,20 @@ REGISTRY_ROOT=./clear-signing-erc7730-registry \
   npm run import
 ```
 
+Or in Docker. `loadConfig` validates **all** required vars at boot (it throws a
+`ConfigError` before any work if one is missing), so pass every one with `-e`:
+
+```bash
+docker run --rm \
+  -e ARKIV_PRIVATE_KEY=0xyourprivatekey \
+  -e ARKIV_RPC_URL=https://rpc.rabdi.db-chain.testnet.arkiv.network \
+  -e ARKIV_CHAIN_ID=7794095 \
+  -e GITHUB_TOKEN=ghp_yourtoken \
+  -e REGISTRY_ROOT=/registry \
+  -v "$PWD/clear-signing-erc7730-registry:/registry" \
+  klarity npm run import
+```
+
 Required environment variables:
 
 | Var | Purpose |
