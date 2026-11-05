@@ -81,8 +81,7 @@ export class ArkivClient {
   constructor(config: Config) {
     const account = privateKeyToAccount(config.arkiv.privateKey as Hex);
     this.registryWallet = account.address;
-    const accessKey =
-      (config.arkiv as { accessKey?: string }).accessKey ?? '';
+    const accessKey = config.arkiv.accessKey;
     const chain = rabdi({ accessKey });
     this.chainId = chain.id;
     this.wallet = createWalletClient({

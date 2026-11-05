@@ -11,6 +11,7 @@ export interface Config {
     rpcUrl: string;
     wsUrl: string;
     chainId: number;
+    accessKey: string;
   };
   github: {
     token: string;
@@ -67,6 +68,7 @@ export function loadConfig(env: Env = process.env): Config {
       rpcUrl: env.ARKIV_RPC_URL as string,
       wsUrl: env.ARKIV_WS_URL ?? '',
       chainId: parseIntOr(env.ARKIV_CHAIN_ID, 0),
+      accessKey: env.ARKIV_ACCESS_KEY ?? '',
     },
     github: {
       token: env.GITHUB_TOKEN as string,

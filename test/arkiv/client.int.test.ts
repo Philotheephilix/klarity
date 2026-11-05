@@ -17,6 +17,7 @@ function arkivConfig(privateKey: string): Config {
       rpcUrl: process.env.ARKIV_RPC_URL ?? RABDI_RPC,
       wsUrl: '',
       chainId: Number(process.env.ARKIV_CHAIN_ID ?? '7794095'),
+      accessKey: process.env.ARKIV_ACCESS_KEY ?? '',
     },
   } as unknown as Config;
 }

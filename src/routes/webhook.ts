@@ -89,6 +89,14 @@ export function registerWebhookRoute(app: FastifyInstance, deps: ServerDeps): vo
   };
 
   app.post('/webhooks/github', async (req, reply) => {
+    // Harden-at-boot complement: never compute an HMAC under an empty key. An
+    // empty secret means the webhook is NOT configured — refuse the route
+    // rather than silently accept a signature forgeable under key ''.
+    if (config.github.webhookSecret === '') {
+      req.log.error('[webhook] refusing request: GITHUB_WEBHOOK_SECRET not configured');
+      return reply.code(503).send({ error: 'webhook secret not configured' });
+    }
+
     const rawBody = (req as FastifyRequest & { rawBody?: Buffer }).rawBody;
     if (!rawBody || !verifySignature(req, rawBody, config.github.webhookSecret)) {
       return reply.code(401).send({ error: 'invalid signature' });
@@ -110,7 +118,15 @@ export function registerWebhookRoute(app: FastifyInstance, deps: ServerDeps): vo
 
     for (const file of files) {
       try {
-        await applyChangedFile({ path: file.path, status: file.status }, passDeps);
+        // Supply the push head (`after`) sha as the per-file sha. The push
+        // payload carries no per-file blob sha, so `after` is the ref the files
+        // are at — threading it lets include-bearing files hit sync's
+        // `skip:includes:<sha>` negative cache (only read/written when sha is
+        // defined) instead of re-`getFile`-ing on every delivery.
+        await applyChangedFile(
+          { path: file.path, status: file.status, sha: ref },
+          passDeps,
+        );
       } catch (err) {
         // One bad file must not fail the whole delivery; the poll loop re-ingests.
         req.log.warn(
