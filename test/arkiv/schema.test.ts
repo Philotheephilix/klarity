@@ -1,0 +1,155 @@
+import { describe, it, expect } from 'vitest';
+import { isArkivValue } from '@arkiv-network/sdk';
+import {
+  ClearSignDescriptor,
+  SCHEMA_NAMESPACE,
+  INDEXED_ATTRIBUTES,
+  toValues,
+} from '../../src/arkiv/schema.js';
+import type { EntityRecord } from '../../src/normalize/types.js';
+
+const calldataRec: EntityRecord = {
+  chainId: 1,
+  contract: '0xd01607c3c5ecaba394d8be377a08590149325722',
+  selector: '0x474cf53d',
+  functionName: 'depositETH',
+  functionSignature: 'depositETH(address,address,uint16)',
+  kind: 'calldata',
+  intent: 'Supply',
+  entityName: 'aave',
+  contractName: 'WrappedTokenGatewayV3',
+  owner: 'Aave DAO',
+  sourcePath: 'registry/aave/calldata-WrappedTokenGatewayV3.json',
+  schemaVersion: 'https://schemas.example/erc7730-v1',
+  formatBlock: { intent: 'Supply', fields: [] },
+};
+
+const eip712Rec: EntityRecord = {
+  chainId: 1,
+  contract: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+  selector: '0x8b73c3c6',
+  functionName: 'Permit',
+  functionSignature: 'Permit',
+  kind: 'eip712',
+  intent: 'Approve',
+  entityName: 'dai',
+  contractName: 'Dai',
+  owner: 'MakerDAO',
+  sourcePath: 'registry/dai/eip712-Permit.json',
+  eip712PrimaryType: 'Permit',
+  schemaVersion: 'https://schemas.example/erc7730-v1',
+  formatBlock: { intent: 'Approve', fields: [] },
+};
+
+const CONTENT_HASH =
+  '0x1111111111111111111111111111111111111111111111111111111111111111';
+const AUTHORIZED_BY = '0x00000000000000000000000000000000000000ab';
+
+describe('ClearSignDescriptor schema', () => {
+  it('is defined under the exact registry namespace', () => {
+    expect(SCHEMA_NAMESPACE).toBe('clear-signing-erc7730');
+    expect(ClearSignDescriptor.name).toBe('clear-signing-erc7730');
+  });
+
+  it('has the exact indexed (queryable) attribute set per schema.md', () => {
+    // Every column schema.md marks indexed must be filterable. `contentHash`
+    // and `schemaVersion` are read-back only, so they are NOT indexed.
+    const expected = [
+      'chainId',
+      'contract',
+      'selector',
+      'functionName',
+      'functionSignature',
+      'kind',
+      'intent',
+      'entityName',
+      'contractName',
+      'owner',
+      'sourcePath',
+      'authorizedBy',
+      'source',
+      'eip712PrimaryType',
+    ].sort();
+    expect([...INDEXED_ATTRIBUTES].sort()).toEqual(expected);
+
+    const cols = ClearSignDescriptor.columns;
+    for (const name of INDEXED_ATTRIBUTES) {
+      expect(cols[name]?.isIndexed, `${name} must be indexed`).toBe(true);
+    }
+    // contentHash + schemaVersion present but not indexed.
+    expect(cols.contentHash?.isIndexed).toBe(false);
+    expect(cols.schemaVersion?.isIndexed).toBe(false);
+  });
+
+  it('declares authorizedBy and eip712PrimaryType optional', () => {
+    const cols = ClearSignDescriptor.columns;
+    expect(cols.authorizedBy?.isOptional).toBe(true);
+    expect(cols.eip712PrimaryType?.isOptional).toBe(true);
+  });
+});
+
+describe('toValues mapping helper', () => {
+  it('wraps every value as an Arkiv value, never a bare primitive', () => {
+    const values = toValues(calldataRec, {
+      source: 'github-sync',
+      contentHash: CONTENT_HASH,
+    });
+    for (const [name, v] of Object.entries(values)) {
+      expect(isArkivValue(v), `${name} must be an Arkiv value, got ${typeof v}`).toBe(true);
+      expect(typeof v).not.toBe('number');
+      expect(typeof v).not.toBe('string');
+    }
+  });
+
+  it('maps chainId as u64, contract/selector/contentHash correctly', () => {
+    const values = toValues(calldataRec, {
+      source: 'github-sync',
+      contentHash: CONTENT_HASH,
+    });
+    expect(values.chainId).toMatchObject({ type: 'u64', value: 1n });
+    expect(values.contract).toMatchObject({ type: 'addr' });
+    // selector stored as queryable str hex (bytes are not indexable in the SDK)
+    expect(values.selector).toMatchObject({ type: 'str', value: '0x474cf53d' });
+    expect(values.contentHash).toMatchObject({ type: 'bytes', value: CONTENT_HASH });
+    expect(values.source).toMatchObject({ type: 'str', value: 'github-sync' });
+  });
+
+  it('normalizes the contract address (case-insensitive addr equality)', () => {
+    const upper = { ...calldataRec, contract: '0xD01607C3C5ECABA394D8BE377A08590149325722' };
+    const lower = toValues(calldataRec, { source: 'github-sync', contentHash: CONTENT_HASH });
+    const fromUpper = toValues(upper, { source: 'github-sync', contentHash: CONTENT_HASH });
+    // The SDK's addr() stores the EIP-55 checksummed form; addresses compare
+    // case-insensitively on-chain, so upper/lower inputs produce the same value.
+    expect((fromUpper.contract as { type: string; value: string }).type).toBe('addr');
+    expect((fromUpper.contract as { value: string }).value.toLowerCase()).toBe(
+      (lower.contract as { value: string }).value.toLowerCase(),
+    );
+    expect((fromUpper.contract as { value: string }).value.toLowerCase()).toBe(
+      '0xd01607c3c5ecaba394d8be377a08590149325722',
+    );
+  });
+
+  it('omits optional authorizedBy when not supplied', () => {
+    const values = toValues(calldataRec, { source: 'github-sync', contentHash: CONTENT_HASH });
+    expect(values.authorizedBy).toBeUndefined();
+  });
+
+  it('includes authorizedBy (addr) when supplied', () => {
+    const values = toValues(calldataRec, {
+      source: 'authorized-write',
+      authorizedBy: AUTHORIZED_BY,
+      contentHash: CONTENT_HASH,
+    });
+    expect(values.authorizedBy).toMatchObject({ type: 'addr' });
+    expect(isArkivValue(values.authorizedBy)).toBe(true);
+  });
+
+  it('includes eip712PrimaryType for eip712 records and omits it for calldata', () => {
+    const e = toValues(eip712Rec, { source: 'github-sync', contentHash: CONTENT_HASH });
+    expect(e.eip712PrimaryType).toMatchObject({ type: 'str', value: 'Permit' });
+    expect(e.kind).toMatchObject({ type: 'str', value: 'eip712' });
+
+    const c = toValues(calldataRec, { source: 'github-sync', contentHash: CONTENT_HASH });
+    expect(c.eip712PrimaryType).toBeUndefined();
+  });
+});
