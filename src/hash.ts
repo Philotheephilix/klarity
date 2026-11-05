@@ -1,5 +1,8 @@
-import canonicalize from 'canonicalize';
-import { keccak256 } from 'js-sha3';
+import canonicalizeModule from 'canonicalize';
+import sha3 from 'js-sha3';
+
+const canonicalize = canonicalizeModule as unknown as (input: unknown) => string | undefined;
+const { keccak256 } = sha3;
 
 /**
  * Canonical content hash for the whole system.
