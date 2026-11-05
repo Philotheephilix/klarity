@@ -44,6 +44,20 @@ const ENTITY_MARKER_PREFIX = 'Arkiv-Entity: ';
 type OctokitLike = any;
 
 /**
+ * Recognizes an "already exists" signal from a rejected `createFork` so the
+ * fork-ensure step can treat it as success. GitHub surfaces this as a 422
+ * (Unprocessable Entity) or a message mentioning the fork/repo already existing;
+ * anything else (403 permission, 404, transient 5xx) is a real failure.
+ */
+function isAlreadyExistsError(err: unknown): boolean {
+  if (err == null || typeof err !== 'object') return false;
+  const status = (err as { status?: number }).status;
+  if (status === 422) return true;
+  const message = String((err as { message?: unknown }).message ?? '').toLowerCase();
+  return message.includes('already exists');
+}
+
+/**
  * Builds the production Octokit: real REST client plugged with throttling and
  * retry. Throttle handlers tell Octokit to retry primary rate limits a couple
  * of times and to back off on secondary limits — never throw synchronously.
@@ -177,12 +191,21 @@ export class GitHubClient {
   async openDescriptorPR(opts: OpenDescriptorPROptions): Promise<string> {
     const { path, descriptor, entityKey, wallet, action } = opts;
 
-    // 1. Ensure the fork exists. createFork is idempotent: a 2xx on an existing
-    //    fork is fine; we treat any already-exists signal as success.
-    await this.octokit.repos.createFork({
-      owner: this.upstreamOwner,
-      repo: this.upstreamRepo,
-    });
+    // 1. Ensure the fork exists. createFork is idempotent at the API level — it
+    //    returns 202 when the fork already exists — so the happy path never
+    //    throws. But if it DOES reject with an already-exists signal, swallow it
+    //    and proceed; any other error (403 no fork permission, 404, transient)
+    //    propagates so the flow fails loudly here rather than confusingly at
+    //    createRef against a non-existent fork.
+    try {
+      await this.octokit.repos.createFork({
+        owner: this.upstreamOwner,
+        repo: this.upstreamRepo,
+      });
+    } catch (err) {
+      if (!isAlreadyExistsError(err)) throw err;
+      // fork already present — treat as success.
+    }
 
     // 2. Branch off upstream HEAD, on the fork.
     const baseSha = await this.headSha();

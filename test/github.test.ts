@@ -237,6 +237,36 @@ describe('GitHubClient.openDescriptorPR (create)', () => {
     expect(put.args.message).toContain('Arkiv-Origin: true');
     expect(put.args.message).toContain('Arkiv-Entity: 0xDEADBEEF');
   });
+
+  it('proceeds when createFork rejects with an already-exists signal (fork already present)', async () => {
+    const octokit = fakeOctokit({
+      repos: {
+        createFork: () =>
+          Promise.reject(
+            Object.assign(new Error('Repository already exists on this account'), {
+              status: 422,
+            })
+          ),
+      },
+    });
+    const client = new GitHubClient(githubConfig(), octokit);
+    const url = await client.openDescriptorPR({
+      path: 'registry/aave/calldata-Pool.json',
+      descriptor: { intent: 'Supply' },
+      entityKey: '0xKEY',
+      wallet: '0xWALLET',
+      action: 'create',
+    });
+    // fork-exists did not abort: downstream calls all still happened.
+    expect(octokit.calls.some((c) => c.name === 'git.createRef')).toBe(true);
+    expect(
+      octokit.calls.some((c) => c.name === 'repos.createOrUpdateFileContents')
+    ).toBe(true);
+    expect(octokit.calls.some((c) => c.name === 'pulls.create')).toBe(true);
+    expect(url).toBe(
+      'https://github.com/ethereum/clear-signing-erc7730-registry/pull/42'
+    );
+  });
 });
 
 describe('GitHubClient.openDescriptorPR (update)', () => {
