@@ -1,9 +1,28 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 
 const SYNC_CURSOR_KEY = 'sync_cursor';
+
+// DDL inlined (not a sibling .sql file) so the compiled dist is self-contained:
+// tsc does not copy non-.ts assets, so a file-relative read throws ENOENT under
+// `node dist/...`.
+const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS sync_state (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS used_nonces (
+  signer TEXT NOT NULL,
+  nonce  TEXT NOT NULL,
+  PRIMARY KEY (signer, nonce)
+);
+CREATE TABLE IF NOT EXISTS source_hashes (
+  source_path TEXT PRIMARY KEY,
+  hash        TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS deliveries (
+  id TEXT PRIMARY KEY
+);
+`;
 
 export interface Db {
   getSyncCursor(): string | null;
@@ -16,19 +35,14 @@ export interface Db {
   markDelivery(id: string): void;
 }
 
-function loadSchema(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return readFileSync(join(here, 'db', 'schema.sql'), 'utf8');
-}
-
 /**
  * Open (or create) the local sync-state store at `path`. Pass `:memory:` for an
- * ephemeral in-memory DB. Executes the DDL in `src/db/schema.sql` on open.
+ * ephemeral in-memory DB. Executes the inlined DDL on open.
  */
 export function openDb(path: string): Db {
   const sqlite = new Database(path);
   sqlite.pragma('journal_mode = WAL');
-  sqlite.exec(loadSchema());
+  sqlite.exec(SCHEMA_SQL);
 
   const selCursor = sqlite.prepare(
     'SELECT value FROM sync_state WHERE key = ?'
