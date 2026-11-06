@@ -196,7 +196,7 @@ export interface CaptureVouchArgs {
 
 /**
  * Injectable dependencies for {@link captureVouch} — the `onUserInput`
- * testability seam, mirroring the `RankDeps` split. Production wires
+ * testability seam, mirroring the other deps seams. Production wires
  * `putPending` over `snap_manage_state`, `schedule` over
  * `snap_scheduleBackgroundEvent`, and `notify` over a `snap_dialog` alert.
  */
