@@ -26,3 +26,15 @@ export function getApiBaseUrl(): string {
 export function profileForChain(chainId: number): EasProfile {
   return PROFILES[chainId] ?? SEPOLIA;
 }
+
+/**
+ * Inject a human-provided, human-approved public-tier schema UID into a profile.
+ *
+ * Returns a NEW profile with `publicSchemaUID` set to `uid` and every other
+ * field unchanged; the input profile is never mutated. This is the runtime
+ * injection hook for a Sepolia UID that a human registers out of band — the
+ * code never hard-codes or fabricates a UID.
+ */
+export function withPublicSchemaUID(profile: EasProfile, uid: string): EasProfile {
+  return { ...profile, publicSchemaUID: uid };
+}
