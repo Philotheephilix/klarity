@@ -1,6 +1,7 @@
 import { defineSchema, addr, u64, str, bytes } from '@arkiv-network/sdk/schema';
 import type { ArkivValue } from '@arkiv-network/sdk';
 import type { EntityRecord } from '../normalize/types.js';
+import { canonicalHash } from '../hash.js';
 
 /** The one registry namespace. Every Klarity entity is tagged with it. */
 export const SCHEMA_NAMESPACE = 'clear-signing-erc7730' as const;
@@ -24,8 +25,7 @@ export const ClearSignDescriptor = defineSchema(SCHEMA_NAMESPACE, {
   contract: addr().indexed(),
   // hex selector as an indexed str so the headline lookup can filter on it.
   selector: str().indexed(),
-  functionName: str().indexed(),
-  functionSignature: str().indexed(),
+  functionName: str().indexed().optional(),
   kind: str().indexed(),
   intent: str().indexed(),
   entityName: str().indexed(),
@@ -37,8 +37,19 @@ export const ClearSignDescriptor = defineSchema(SCHEMA_NAMESPACE, {
   eip712PrimaryType: str().indexed().optional(),
   // read-back only (loop guard / EIP-712 binding); bytes is never indexable.
   contentHash: bytes(),
+  // the full canonical format block + its hash; neither is indexed or queried.
+  body: bytes(),
+  bodyHash: str(),
   schemaVersion: str(),
 });
+
+/**
+ * Conservative upper bound on a body's canonical UTF-8 byte length. The real
+ * largest registry body is ~6.4 KB, so this never fires in practice; it is a
+ * fail-loud belt-and-suspenders guard with headroom below the measured
+ * ~129.5 KB Rabdi entity ceiling (well under the SDK's 131072-byte bytes cap).
+ */
+export const MAX_BODY_BYTES = 120000;
 
 /** Attribute names that are indexed (i.e. usable in `.where(...)` filters). */
 export const INDEXED_ATTRIBUTES = [
@@ -46,7 +57,6 @@ export const INDEXED_ATTRIBUTES = [
   'contract',
   'selector',
   'functionName',
-  'functionSignature',
   'kind',
   'intent',
   'entityName',
@@ -69,21 +79,45 @@ export interface WriteMeta {
 }
 
 /**
+ * Does `s` fit the SDK's 128-byte cap on an indexed `str` column? The cap is on
+ * UTF-8 byte length, not character count, so multi-byte characters count more
+ * than once. Over-cap values are omitted from the row rather than truncated.
+ */
+export function fitsStrCap(s: string): boolean {
+  return new TextEncoder().encode(s).length <= 128;
+}
+
+/**
  * Build the Arkiv `values` row for a record. Every value is wrapped with its
  * column's type helper — no bare primitives reach `createEntity`/`patchEntity`.
  * Optional columns (`authorizedBy`, `eip712PrimaryType`) are omitted entirely
- * when absent rather than set to a sentinel.
+ * when absent rather than set to a sentinel. `functionName` and
+ * `eip712PrimaryType` are also omitted when they exceed the 128-byte str cap;
+ * the full descriptor always survives in the non-indexed `body` blob.
  */
 export function toValues(
   rec: EntityRecord,
   meta: WriteMeta,
 ): Record<string, ArkivValue> {
+  // Canonicalize the format block once: its bytes become the body blob and the
+  // same canonical form is hashed into bodyHash.
+  const { canonical, hash } = canonicalHash(rec.formatBlock);
+
+  // Pre-flight size guard: fail loud, naming the descriptor, before the SDK's
+  // bytes() cap (131072) or the real-chain ~129.5 KB entity ceiling is hit.
+  // Reuses the canonical string already computed for body + bodyHash.
+  const bodyBytes = Buffer.byteLength(canonical, 'utf8');
+  if (bodyBytes > MAX_BODY_BYTES) {
+    throw new Error(
+      `descriptor body too large: ${bodyBytes} bytes exceeds MAX_BODY_BYTES ` +
+        `(${MAX_BODY_BYTES}) for ${rec.chainId}/${rec.contract}/${rec.selector}`,
+    );
+  }
+
   const values: Record<string, ArkivValue> = {
     chainId: u64(BigInt(rec.chainId)),
     contract: addr(rec.contract.toLowerCase()),
     selector: str(rec.selector),
-    functionName: str(rec.functionName),
-    functionSignature: str(rec.functionSignature),
     kind: str(rec.kind),
     intent: str(rec.intent),
     entityName: str(rec.entityName),
@@ -92,13 +126,22 @@ export function toValues(
     sourcePath: str(rec.sourcePath),
     source: str(meta.source),
     contentHash: bytes(meta.contentHash as `0x${string}`),
+    body: bytes(new TextEncoder().encode(canonical)),
+    bodyHash: str(hash),
     schemaVersion: str(rec.schemaVersion),
   };
 
   if (meta.authorizedBy !== undefined && meta.authorizedBy !== '') {
     values.authorizedBy = addr(meta.authorizedBy.toLowerCase());
   }
-  if (rec.eip712PrimaryType !== undefined && rec.eip712PrimaryType !== '') {
+  if (fitsStrCap(rec.functionName)) {
+    values.functionName = str(rec.functionName);
+  }
+  if (
+    rec.eip712PrimaryType !== undefined &&
+    rec.eip712PrimaryType !== '' &&
+    fitsStrCap(rec.eip712PrimaryType)
+  ) {
     values.eip712PrimaryType = str(rec.eip712PrimaryType);
   }
 

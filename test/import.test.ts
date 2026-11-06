@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runImport, walkDescriptors, type ImportDeps } from '../src/import.js';
@@ -149,6 +150,41 @@ describe('runImport({root}) — backfill', () => {
     };
     await runImport({ root: FIXTURES }, depsWithGh);
     expect(setSyncCursor).toHaveBeenCalledWith('HEAD_SHA_123');
+  });
+});
+
+describe('runImport({root}) — over-cap string field is written, not dropped', () => {
+  it('upserts a record whose format key exceeds the 128-byte str cap', async () => {
+    // Task 1's toValues omits the offending str column per-field, so a record
+    // with an oversized functionName/functionSignature is now UPSERTED rather
+    // than the whole record being dropped at the writer layer.
+    const root = mkdtempSync(join(tmpdir(), 'import-overcap-'));
+    const bigKey = `transfer(${'uint256,'.repeat(20)}uint256)`; // well over 128 bytes
+    expect(new TextEncoder().encode(bigKey).length).toBeGreaterThan(128);
+    const content = {
+      $schema: 'x',
+      context: {
+        contract: {
+          deployments: [
+            { chainId: 1, address: '0x0000000000000000000000000000000000000001' },
+          ],
+        },
+      },
+      display: { formats: { [bigKey]: { intent: 'Big' } } },
+    };
+    writeFileSync(join(root, 'overcap.json'), JSON.stringify(content));
+
+    const { deps, upsert, setHash } = makeDeps();
+    const summary = await runImport({ root }, deps);
+
+    // The record is no longer dropped: it is upserted and the file is counted
+    // as upserted, not skipped.
+    expect(summary.files).toBe(1);
+    expect(summary.upserted).toBe(1);
+    expect(summary.skipped).toBe(0);
+    expect(summary.records).toBe(1);
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(setHash).toHaveBeenCalledTimes(1);
   });
 });
 

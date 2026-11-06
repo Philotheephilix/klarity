@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { buildServer, type ServerDeps } from '../src/server.js';
 import { domain, types, type DescriptorWriteMessage } from '../src/auth.js';
-import { descriptorHash } from '../src/hash.js';
+import { descriptorHash, canonicalHash } from '../src/hash.js';
 import type { Config } from '../src/config.js';
 
 // Anvil account #0 — throwaway test key, never a real wallet.
@@ -59,6 +59,7 @@ function makeDeps(opts: {
   const deliveries = opts.deliveries ?? new Set<string>();
   const arkiv = {
     queryOne: vi.fn(async () => opts.queryOneRow ?? null),
+    queryOneWithBody: vi.fn(async () => opts.queryOneRow ?? null),
     queryMany: vi.fn(async () => opts.queryManyRows ?? []),
     upsert: vi.fn(async () => ({
       entityKey: '0xentitykey',
@@ -119,11 +120,86 @@ describe('GET query routes', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ chainId: 1 });
-    expect(arkiv.queryOne).toHaveBeenCalledWith({
+    expect(arkiv.queryOneWithBody).toHaveBeenCalledWith({
       chainId: 1,
       contract: '0xabc',
       selector: '0x12345678',
     });
+    await app.close();
+  });
+
+  it('body present + hash matches -> inlines decoded formatBlock, 200', async () => {
+    const formatBlock = { intent: 'Transfer', fields: [{ path: 'to', label: 'To' }] };
+    const canonical = canonicalHash(formatBlock).canonical;
+    const row = {
+      $key: '0xkey',
+      chainId: 1,
+      selector: '0x12345678',
+      body: { type: 'bytes', value: '0x' + Buffer.from(canonical, 'utf8').toString('hex') },
+      bodyHash: { type: 'str', value: descriptorHash(formatBlock) },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ formatBlock });
+    await app.close();
+  });
+
+  it('body present + hash mismatch -> 500', async () => {
+    const formatBlock = { intent: 'Transfer' };
+    const canonical = canonicalHash(formatBlock).canonical;
+    const row = {
+      $key: '0xkey',
+      chainId: 1,
+      selector: '0x12345678',
+      body: { type: 'bytes', value: '0x' + Buffer.from(canonical, 'utf8').toString('hex') },
+      bodyHash: { type: 'str', value: descriptorHash({ intent: 'Tampered' }) },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(500);
+    await app.close();
+  });
+
+  it('malformed body -> 500, not an unhandled throw', async () => {
+    const row = {
+      $key: '0xkey',
+      chainId: 1,
+      selector: '0x12345678',
+      // Not valid UTF-8 JSON once hex-decoded.
+      body: { type: 'bytes', value: '0xdeadbeef' },
+      bodyHash: { type: 'str', value: '0x00' },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(500);
+    await app.close();
+  });
+
+  it('row present but no body field (pre-column row) -> 200, no formatBlock', async () => {
+    const row = { $key: '0xkey', chainId: 1, selector: '0x12345678' };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as Record<string, unknown>;
+    expect(json).toMatchObject({ chainId: 1, selector: '0x12345678' });
+    expect(json).not.toHaveProperty('formatBlock');
     await app.close();
   });
 
@@ -161,6 +237,25 @@ describe('GET query routes', () => {
       entityName: 'aave',
       intent: 'Transfer',
     });
+    await app.close();
+  });
+
+  it('browse ignores functionSignature and carries no body/bodyHash', async () => {
+    const rows = [{ $key: '0x1', chainId: 1 }];
+    const { deps, arkiv } = makeDeps({ queryManyRows: rows });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors?entityName=aave&functionSignature=transfer(address,uint256)',
+    });
+    expect(res.statusCode).toBe(200);
+    // functionSignature is no longer a browse filter key — not passed through.
+    expect(arkiv.queryMany).toHaveBeenCalledWith({ entityName: 'aave' });
+    const json = res.json() as Record<string, unknown>[];
+    for (const r of json) {
+      expect(r).not.toHaveProperty('body');
+      expect(r).not.toHaveProperty('bodyHash');
+    }
     await app.close();
   });
 

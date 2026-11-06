@@ -8,20 +8,10 @@ import { normalizeDescriptor, type EntityRecord } from './normalize/normalize.js
  * Outcome of applying a single changed descriptor file.
  * - `written`  — at least one record was normalized and upserted; hash advanced.
  * - `skipped`  — loop guard hit (content byte-identical to what we last ingested),
- *                or no record survived the write-time guards, or normalize failed.
+ *                or the descriptor emitted no records, or normalize failed.
  * - `deleted`  — the file was removed upstream; its entities were deleted.
  */
 export type ApplyOutcome = 'written' | 'skipped' | 'deleted';
-
-/** Max UTF-8 byte length an Arkiv `str` column accepts before `InvalidValueError`. */
-export const MAX_STRING_BYTES = 128;
-
-/** String fields that can blow past the 128-byte `str` cap on pathological descriptors. */
-const CAPPED_STRING_FIELDS = [
-  'functionSignature',
-  'functionName',
-  'eip712PrimaryType',
-] as const;
 
 /**
  * Negative-cache sentinel prefix stored in the hash column for a file we fetched
@@ -55,32 +45,10 @@ export interface IngestSummary {
   written: number;
   skipped: number;
   deleted: number;
-  /** Records dropped at write time for exceeding the 128-byte str cap. */
-  oversizedRecords: number;
   /** eip712 (chainId,contract,selector) identity collisions observed this pass. */
   eip712Collisions: number;
   /** Total changed descriptor files examined. */
   files: number;
-}
-
-const UTF8 = new TextEncoder();
-
-function utf8Bytes(s: string): number {
-  return UTF8.encode(s).length;
-}
-
-/**
- * GUARD 1 — 128-byte str cap. True if any capped string field on `rec` exceeds
- * `MAX_STRING_BYTES` UTF-8 bytes. Such a record would make Arkiv throw
- * `InvalidValueError` at write, so the writer layer (here) drops it rather than
- * writing a corrupted/truncated signature a wallet would later display.
- */
-export function recordExceedsStringCap(rec: EntityRecord): boolean {
-  for (const field of CAPPED_STRING_FIELDS) {
-    const v = rec[field];
-    if (typeof v === 'string' && utf8Bytes(v) > MAX_STRING_BYTES) return true;
-  }
-  return false;
 }
 
 /**
@@ -165,17 +133,6 @@ export async function applyChangedFile(
   let wrote = 0;
 
   for (const rec of records) {
-    // GUARD 1: drop oversized-field records instead of throwing the whole file.
-    if (recordExceedsStringCap(rec)) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[sync] skipping record ${rec.chainId}/${rec.contract}/${rec.selector} in ${path}: ` +
-          `string field exceeds ${MAX_STRING_BYTES} bytes`,
-      );
-      if (summary) summary.oversizedRecords += 1;
-      continue;
-    }
-
     // GUARD 2: eip712 selector identity collision. Upsert identity is only
     // (chainId,contract,selector); two distinct primaryTypes whose 4-byte
     // typeHash prefixes collide would clobber each other. Detect within this
@@ -200,8 +157,8 @@ export async function applyChangedFile(
   }
 
   if (wrote === 0) {
-    // All records were dropped by the guards (or the descriptor had none).
-    // Do NOT advance the hash — a fixed future version should re-ingest.
+    // The descriptor emitted no records. Do NOT advance the hash — a fixed
+    // future version should re-ingest.
     if (summary) summary.skipped += 1;
     return 'skipped';
   }
@@ -235,7 +192,6 @@ export async function runIngestOnce(deps: SyncDeps): Promise<IngestSummary> {
     written: 0,
     skipped: 0,
     deleted: 0,
-    oversizedRecords: 0,
     eip712Collisions: 0,
     files: 0,
   };

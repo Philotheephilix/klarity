@@ -43,7 +43,6 @@ export type QueryFilter = Partial<{
   entityName: string;
   contractName: string;
   functionName: string;
-  functionSignature: string;
   owner: string;
   sourcePath: string;
   source: string;
@@ -51,7 +50,31 @@ export type QueryFilter = Partial<{
 }>;
 
 // Optional columns that a patch may need to clear when the new record omits them.
-const OPTIONAL_COLUMNS = ['authorizedBy', 'eip712PrimaryType'] as const;
+export const OPTIONAL_COLUMNS = ['authorizedBy', 'eip712PrimaryType', 'functionName'] as const;
+
+/**
+ * The shared column list every read selects. Browse/list reads use it as-is;
+ * single-row body reads spread it and add the non-indexed `body`/`bodyHash`
+ * columns. Keeping ONE object means the two builders cannot drift.
+ */
+const BASE_SELECT = {
+  $key: true,
+  chainId: true,
+  contract: true,
+  selector: true,
+  functionName: true,
+  kind: true,
+  intent: true,
+  entityName: true,
+  contractName: true,
+  owner: true,
+  sourcePath: true,
+  authorizedBy: true,
+  source: true,
+  eip712PrimaryType: true,
+  contentHash: true,
+  schemaVersion: true,
+} as const;
 
 /**
  * Reads and writes `ClearSignDescriptor` entities on Arkiv (Rabdi testnet).
@@ -99,25 +122,21 @@ export class ArkivClient {
   queryManyBuilder(filter: QueryFilter) {
     const predicates = buildPredicates(filter);
     return this.reader
-      .select({
-        $key: true,
-        chainId: true,
-        contract: true,
-        selector: true,
-        functionName: true,
-        functionSignature: true,
-        kind: true,
-        intent: true,
-        entityName: true,
-        contractName: true,
-        owner: true,
-        sourcePath: true,
-        authorizedBy: true,
-        source: true,
-        eip712PrimaryType: true,
-        contentHash: true,
-        schemaVersion: true,
-      })
+      .select(BASE_SELECT)
+      .from(ClearSignDescriptor)
+      .where(and(predicates))
+      .createdBy(this.registryWallet);
+  }
+
+  /**
+   * Same as `queryManyBuilder` but its select also pulls the non-indexed
+   * `body`/`bodyHash` columns. Browse/list stays body-free; only single-row
+   * body reads go through this path.
+   */
+  private queryManyWithBodyBuilder(filter: QueryFilter) {
+    const predicates = buildPredicates(filter);
+    return this.reader
+      .select({ ...BASE_SELECT, body: true, bodyHash: true })
       .from(ClearSignDescriptor)
       .where(and(predicates))
       .createdBy(this.registryWallet);
@@ -136,6 +155,22 @@ export class ArkivClient {
       contract: identity.contract,
       selector: identity.selector,
     });
+    return rows.length > 0 ? rows[0]! : null;
+  }
+
+  /**
+   * The single row for an identity including its non-indexed `body`/`bodyHash`
+   * columns, or `null` if none exists. Same semantics as `queryOne`.
+   */
+  async queryOneWithBody(identity: Identity): Promise<Record<string, unknown> | null> {
+    const page = await this.queryManyWithBodyBuilder({
+      chainId: identity.chainId,
+      contract: identity.contract,
+      selector: identity.selector,
+    })
+      .limit(1)
+      .fetch();
+    const rows = page.entities as Record<string, unknown>[];
     return rows.length > 0 ? rows[0]! : null;
   }
 
@@ -213,7 +248,6 @@ function buildPredicates(filter: QueryFilter) {
   if (filter.entityName !== undefined) preds.push(eq('entityName', str(filter.entityName)));
   if (filter.contractName !== undefined) preds.push(eq('contractName', str(filter.contractName)));
   if (filter.functionName !== undefined) preds.push(eq('functionName', str(filter.functionName)));
-  if (filter.functionSignature !== undefined) preds.push(eq('functionSignature', str(filter.functionSignature)));
   if (filter.owner !== undefined) preds.push(eq('owner', str(filter.owner)));
   if (filter.sourcePath !== undefined) preds.push(eq('sourcePath', str(filter.sourcePath)));
   if (filter.source !== undefined) preds.push(eq('source', str(filter.source)));
