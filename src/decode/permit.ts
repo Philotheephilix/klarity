@@ -31,6 +31,27 @@ const COMPACT_EIP2612 = 100;
 const COMPACT_DAI = 72;
 const COMPACT_PERMIT2 = 96;
 
+/**
+ * 1inch's on-wire `permit` arg for `permitAndCall` is specifically
+ * `token(20) ++ permitPayload`: a leading 20-byte ERC-20 token address followed
+ * by one of the known bare payloads above. So each `KNOWN + 20` length means
+ * "strip 20 token bytes, decode the remainder against the KNOWN branch".
+ *
+ * The +20 lengths — 244, 276, 372, 120, 92, 116 — are pairwise distinct AND
+ * distinct from every bare length {224,256,352,100,72,96}. Proof: sort the
+ * union {72,92,96,100,116,120,224,244,256,276,352,372} — all twelve differ, so
+ * any length resolves deterministically to at most one (format, prefixed?) pair.
+ * The strip is a fixed 20 bytes keyed to these six remainder-lengths; we do NOT
+ * scan multiple offsets (that would reintroduce mis-decode risk).
+ */
+const TOKEN_PREFIX = 20;
+const PREFIXED_EIP2612 = FULL_EIP2612 + TOKEN_PREFIX; // 244
+const PREFIXED_DAI = FULL_DAI + TOKEN_PREFIX; // 276
+const PREFIXED_PERMIT2 = FULL_PERMIT2 + TOKEN_PREFIX; // 372
+const PREFIXED_COMPACT_EIP2612 = COMPACT_EIP2612 + TOKEN_PREFIX; // 120
+const PREFIXED_COMPACT_DAI = COMPACT_DAI + TOKEN_PREFIX; // 92
+const PREFIXED_COMPACT_PERMIT2 = COMPACT_PERMIT2 + TOKEN_PREFIX; // 116
+
 function hexBytes(v: unknown): Hex | null {
   if (typeof v !== 'string') return null;
   if (!/^0x([0-9a-fA-F]{2})*$/.test(v)) return null;
@@ -144,6 +165,20 @@ export function decodePermit(permit: string): PermitDecoded {
         return { format: 'dai', fields: [], raw };
       case COMPACT_PERMIT2:
         return { format: 'permit2', fields: [], raw };
+      // 1inch on-wire forms: 20-byte token address prefix + a bare payload. Strip
+      // the token, decode the remainder against its branch, prepend a Token field.
+      case PREFIXED_EIP2612:
+        return prefixed('eip2612', raw, decodeEip2612Full);
+      case PREFIXED_DAI:
+        return prefixed('dai', raw, decodeDaiFull);
+      case PREFIXED_PERMIT2:
+        return prefixed('permit2', raw, decodePermit2Full);
+      case PREFIXED_COMPACT_EIP2612:
+        return prefixed('eip2612', raw, null);
+      case PREFIXED_COMPACT_DAI:
+        return prefixed('dai', raw, null);
+      case PREFIXED_COMPACT_PERMIT2:
+        return prefixed('permit2', raw, null);
       default:
         return { format: 'unknown', fields: [], raw };
     }
@@ -151,4 +186,23 @@ export function decodePermit(permit: string): PermitDecoded {
     // Right length but the bytes don't decode against the layout: honest raw.
     return { format: 'unknown', fields: [], raw };
   }
+}
+
+/**
+ * Handle a `token(20) ++ payload` permit: strip the leading 20-byte token
+ * address (first 40 hex chars after `0x`), decode the remainder with `decode`
+ * (or skip for compact/packed remainders where `decode` is null), and prepend a
+ * `Token` field carrying the token as a lowercase `0x…` string. permit.ts does
+ * NOT call the chain — the snap formats/resolves the address downstream.
+ */
+function prefixed(
+  format: Exclude<PermitDecoded['format'], 'unknown'>,
+  raw: Hex,
+  decode: ((rest: Hex) => PermitDecoded['fields']) | null,
+): PermitDecoded {
+  const token = ('0x' + raw.slice(2, 42)) as Hex;
+  const rest = ('0x' + raw.slice(42)) as Hex;
+  const tokenField = { label: 'Token', value: token as string };
+  const fields = decode ? [tokenField, ...decode(rest)] : [tokenField];
+  return { format, fields, raw };
 }
