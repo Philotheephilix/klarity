@@ -123,6 +123,36 @@ function elementType(t: string): string {
   return t.replace(/(\[\d*\])+$/, '');
 }
 
+/** The all-zero 20-byte address (native asset marker — never emitted as a token). */
+const ADDRESS_ZERO = '0x0000000000000000000000000000000000000000';
+
+/** Match an operator path segment: `[0]`, `[-1]`, or the byte-slice `[-20:]`. */
+const OP_SEG_RE = /^\[(-?\d+)(:?)\]$/;
+
+/**
+ * Take a scalar word (bigint / number / 0x-hex / base-10 string) and return its
+ * low 20 bytes as a lowercased `0x…40hex` address — the `[-20:]` byte-slice the
+ * 1inch descriptors use to pull a token/pool address out of a packed uint256
+ * word. Returns null for any non-scalar shape (honest, never throws).
+ */
+function lowBytesAddress(v: unknown): string | null {
+  let n: bigint;
+  try {
+    if (typeof v === 'bigint') n = v;
+    else if (typeof v === 'number') n = BigInt(v);
+    else if (typeof v === 'string') {
+      n = v.startsWith('0x') ? BigInt(v) : BigInt(v);
+    } else return null;
+  } catch {
+    return null;
+  }
+  if (n < 0n) return null;
+  // 32-byte word, take the last 20 bytes (40 hex chars).
+  const word = n.toString(16).padStart(64, '0');
+  if (word.length > 64) return null; // wider than a 32-byte word — not a packed address
+  return '0x' + word.slice(-40).toLowerCase();
+}
+
 /**
  * Split an ERC-7730 calldata path into segments, dropping the optional `#.`
  * (eip712 message) / `@.` (tx-level) root markers. Tx-level paths (`@.value`,
@@ -140,14 +170,21 @@ function pathSegments(path: string): string[] | null {
 }
 
 /**
- * Walk one path through the decoded value tree in lockstep with the ABI
- * parameter tree, resolving to a leaf (value, type). Named components map by
- * `AbiParameter.name`; `[]` descends into an array's element type (collapsing
- * the whole array to its element type — a per-element value is the wallet's
- * concern). Returns null if the path does not resolve to a leaf (shape
- * mismatch, missing name, or a non-leaf endpoint) — honesty over guessing.
+ * Walk a path that MAY end in (or contain) an index / byte-slice operator, over
+ * the decoded value tree in lockstep with the ABI parameter tree. Named
+ * components map by `AbiParameter.name`; a bare `[]` collapses an array to its
+ * element type (a per-element value is the wallet's concern). Supported
+ * operators:
+ *   `[N]`    — index N into an array value (type → element type).
+ *   `[-N]`   — index from the end of an array.
+ *   `[-20:]` — the low-20-byte slice of a scalar word → lowercased `0x…` address
+ *              (type → "address"). Only `[-20:]` is supported; any other `[-K:]`
+ *              slice form → null (honest, no guess).
+ * Named-component / bare-`[]` descent (named components, array collapse) is
+ * preserved for non-operator segments. Never throws — null on any shape
+ * mismatch so the field stays labels-only.
  */
-function resolveArg(
+function resolveArgEx(
   segments: string[],
   node: unknown,
   params: readonly AbiParameter[] | undefined,
@@ -157,13 +194,31 @@ function resolveArg(
   let type = '';
 
   for (const seg of segments) {
+    const op = OP_SEG_RE.exec(seg);
     if (seg === '[]') {
-      // Descend into an array: collapse to the element type, keep the first
-      // element as a representative value if present.
       if (!Array.isArray(value)) return null;
       type = elementType(type);
       value = value.length > 0 ? value[0] : undefined;
-      // abiParams for a tuple[] element is the tuple's components.
+      continue;
+    }
+    if (op) {
+      const num = Number(op[1]);
+      const isSlice = op[2] === ':';
+      if (isSlice) {
+        // Only the `[-20:]` low-20-byte form is supported.
+        if (op[1] !== '-20') return null;
+        const addr = lowBytesAddress(value);
+        if (addr === null) return null;
+        value = addr;
+        type = 'address';
+        continue;
+      }
+      // Numeric index into an array (supports negative-from-end).
+      if (!Array.isArray(value)) return null;
+      const i = num < 0 ? value.length + num : num;
+      if (i < 0 || i >= value.length) return null;
+      value = value[i];
+      type = elementType(type);
       continue;
     }
     if (abiParams === undefined) return null;
@@ -172,8 +227,6 @@ function resolveArg(
     const param = abiParams[idx]!;
     type = param.type;
     if (Array.isArray(value)) {
-      // viem returns tuples as arrays positionally, structs as objects. Handle
-      // both: positional array indexed by param position.
       value = value[idx];
     } else if (value !== null && typeof value === 'object') {
       value = (value as Record<string, unknown>)[seg];
@@ -189,6 +242,45 @@ function resolveArg(
 }
 
 /**
+ * Resolve an ERC-7730 `params.tokenPath` to a concrete lowercased 20-byte token
+ * address, or null if it does not resolve to a usable (non-zero) address.
+ *
+ * Forms: plain / dotted names (`asset`, `order.takerAsset`), index (`path.[0]`),
+ * byte-slice (`token.[-20:]`), and the tx-level `@.to` (the callee contract is
+ * itself the token). `@.from` / `@.value` are not known server-side → null.
+ */
+function resolveTokenPath(
+  tokenPath: string,
+  args: readonly unknown[],
+  abiInputs: readonly AbiParameter[] | undefined,
+  contract: string,
+): string | null {
+  if (tokenPath === '@.to') return normalizeAddress(contract);
+  const segments = pathSegments(tokenPath);
+  if (segments === null || segments.length === 0) return null; // @.from / @.value / empty
+  let resolved: ResolvedArg | null;
+  try {
+    resolved = resolveArgEx(segments, args, abiInputs);
+  } catch {
+    return null;
+  }
+  if (resolved === null) return null;
+  return normalizeAddress(resolved.value);
+}
+
+/**
+ * Validate a resolved value as a usable token address: a lowercased `0x…40hex`
+ * that is NOT address(0). Returns the lowercased address, or null otherwise —
+ * so native / zero / non-address values never become a `params.token`.
+ */
+function normalizeAddress(v: string): string | null {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(v)) return null;
+  const lower = v.toLowerCase();
+  if (lower === ADDRESS_ZERO) return null;
+  return lower;
+}
+
+/**
  * ABI-decode the calldata against the stored (name-bearing) function signature
  * and map each field's `path` onto a decoded (value, type). Never throws: any
  * parse/decode failure yields an empty map, leaving the response labels-only.
@@ -197,6 +289,7 @@ function decodeValues(
   functionSignature: string,
   calldata: string,
   fields: SigningField[],
+  contract: string,
 ): void {
   let abi: AbiFunction;
   try {
@@ -217,15 +310,33 @@ function decodeValues(
 
   for (const field of fields) {
     const segments = pathSegments(field.path);
-    if (segments === null || segments.length === 0) continue;
-    try {
-      const resolved = resolveArg(segments, args, abi.inputs);
-      if (resolved !== null) {
-        field.value = resolved.value;
-        field.type = resolved.type;
+    if (segments !== null && segments.length > 0) {
+      try {
+        const resolved = resolveArgEx(segments, args, abi.inputs);
+        if (resolved !== null) {
+          field.value = resolved.value;
+          field.type = resolved.type;
+        }
+      } catch {
+        // Leave this field labels-only on any unexpected shape error.
       }
-    } catch {
-      // Leave this field labels-only on any unexpected shape error.
+    }
+
+    // Resolve an indirect `params.tokenPath` into a concrete `params.token`
+    // address for the snap's ERC-20 formatter. Honest: only a resolved, non-zero
+    // 20-byte address is emitted; a literal `params.token` already present wins.
+    const params = field.params;
+    if (
+      params &&
+      typeof params.tokenPath === 'string' &&
+      typeof params.token !== 'string'
+    ) {
+      try {
+        const token = resolveTokenPath(params.tokenPath, args, abi.inputs, contract);
+        if (token !== null) field.params = { ...params, token };
+      } catch {
+        // Leave params.token unset on any unexpected shape error.
+      }
     }
   }
 }
@@ -490,7 +601,7 @@ function assembleCalldataResult(
   }
 
   if (functionSignature) {
-    decodeValues(functionSignature, calldata, fields);
+    decodeValues(functionSignature, calldata, fields, contract);
   }
   const valuesPresent = fields.some((f) => f.value !== undefined);
   const shown = fields.filter((f) => !f.hidden);
