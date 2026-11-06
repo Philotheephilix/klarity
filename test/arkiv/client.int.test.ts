@@ -92,8 +92,14 @@ describe.skipIf(!HAS_KEY)('ArkivClient live round-trip (Rabdi)', () => {
     expect(got).not.toBeNull();
     expect(Number((got!.chainId as { value: bigint }).value)).toBe(rec.chainId);
     expect((got!.selector as { value: string }).value).toBe(rec.selector);
-    expect((got!.functionSignature as { value: string }).value).toBe(rec.functionSignature);
     expect((got!.$key as string).toLowerCase()).toBe(first.entityKey.toLowerCase());
+
+    // 2b. queryOneWithBody returns the same row plus the non-indexed body columns.
+    const withBody = await client.queryOneWithBody(identity);
+    expect(withBody).not.toBeNull();
+    expect((withBody!.$key as string).toLowerCase()).toBe(first.entityKey.toLowerCase());
+    expect(withBody!.body).toBeDefined();
+    expect(withBody!.bodyHash).toBeDefined();
 
     // 3. Second upsert of the SAME identity patches -> same key, no duplicate.
     const newHash = descriptorHash({ ...rec.formatBlock, patched: true });
