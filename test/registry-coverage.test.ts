@@ -22,9 +22,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 function registryRoot(): string {
   const fromEnv = process.env.REGISTRY_ROOT;
   if (fromEnv && fromEnv.trim() !== '') return fromEnv;
+  // HERE is `<repo-root>/test`, so the vendored clone is one level up. Resolve
+  // from the repo root, not the worktree depth, so this holds in both the main
+  // checkout and a nested worktree.
   return resolve(
     HERE,
-    '../../../vendor/clear-signing-erc7730-registry/registry',
+    '../vendor/clear-signing-erc7730-registry/registry',
   );
 }
 
