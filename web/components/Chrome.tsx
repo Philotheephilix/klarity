@@ -6,7 +6,8 @@ import { ThemeToggle } from './ThemeToggle';
 export type Section = 'companies' | 'decode';
 
 const SECTIONS: { id: Section; label: string; href: string }[] = [
-  { id: 'companies', label: 'Companies', href: '/' },
+  // `/` is the dashboard home; the companies list browse view lives at /browse.
+  { id: 'companies', label: 'Companies', href: '/browse' },
   { id: 'decode', label: 'Decode', href: '/decode' },
 ];
 

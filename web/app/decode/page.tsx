@@ -28,7 +28,7 @@ export default function DecodeInfoPage() {
               sample payload to the Klarity API and renders the response beside
               the raw bytes.
             </p>
-            <Link href="/">Browse companies</Link>
+            <Link href="/browse">Browse companies</Link>
           </div>
         </Card>
       </div>

@@ -73,9 +73,9 @@ export default function ContractsPage({
   return (
     <Chrome section="companies" search={false}>
       <div className="crumbs">
-        <Link href="/">Home</Link>
+        <Link href="/browse">Home</Link>
         <span>/</span>
-        <Link href="/">Companies</Link>
+        <Link href="/browse">Companies</Link>
         <span>/</span>
         <span>{entity}</span>
       </div>

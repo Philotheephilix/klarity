@@ -39,4 +39,21 @@ describe('config', () => {
     const { KlarityApi: FreshKlarityApi } = await import('../lib/api');
     expect(makeApi()).toBeInstanceOf(FreshKlarityApi);
   });
+
+  it('clientApiBase() returns the same-origin proxy path in the browser', async () => {
+    // jsdom defines window, so this exercises the browser branch.
+    process.env[KEY] = 'https://api.klarity.test';
+    vi.resetModules();
+    const { clientApiBase } = await import('../lib/config');
+    expect(clientApiBase()).toBe('/klarity-api');
+  });
+
+  it('clientApiBase() honours NEXT_PUBLIC_KLARITY_API_PROXY override', async () => {
+    process.env[KEY] = 'https://api.klarity.test';
+    process.env.NEXT_PUBLIC_KLARITY_API_PROXY = '/proxy-x';
+    vi.resetModules();
+    const { clientApiBase } = await import('../lib/config');
+    expect(clientApiBase()).toBe('/proxy-x');
+    delete process.env.NEXT_PUBLIC_KLARITY_API_PROXY;
+  });
 });

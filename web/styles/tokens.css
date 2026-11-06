@@ -46,6 +46,25 @@
   --fill-on: #fff;
   --fill-slab: #000;
 
+  /* Dashboard-home accent set. Derived from the user's design-system file
+   * (deep->mint green ramp) but reconciled with Klarity tokens: --dash-green
+   * aliases the existing --ok so the primary accent stays consistent. These are
+   * defined in BOTH theme blocks so the dashboard reads correctly in each. */
+  --dash-green-deep: #0d3a22;
+  --dash-green: var(--ok);
+  --dash-green-mid: #1a7d49;
+  --dash-green-mint: #4fb07f;
+  --dash-page: #0a0a0a;
+  --dash-frame: #141414;
+  --dash-surface: #0f0f0f;
+  --dash-card: #1a1a1a;
+  --dash-amber: #d9a521;
+  --dash-amber-bg: rgba(217, 165, 33, 0.14);
+  --dash-dark-card: #07241a;
+  /* Outer app-frame shell background (sits behind the frame on the soft page).
+   * On dark it is a near-black panel; on light a pure-white shell. */
+  --dash-shell: #0a0a0a;
+
   --font-head: 'Google Sans', 'Inter Head', var(--font-ui);
   --font-ui: 'Inter', 'Maison Neue', 'Instrument Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-code: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
@@ -97,4 +116,24 @@
 
   --fill-on: #0a0a0a;
   --fill-slab: #fff;
+
+  /* Dashboard-home accent set (light). Mirrors the dark block's contract so the
+   * dashboard switches cleanly with the existing ThemeToggle. The green ramp is
+   * derived from Klarity's own --ok (#1f9d5b): a deeper and a mid shade of the
+   * same hue, NOT the reference comp's palette literals. --dash-green aliases
+   * --ok to keep the primary accent on Klarity's token. */
+  --dash-green-deep: #0c4a2c;
+  --dash-green: var(--ok);
+  --dash-green-mid: #178a4d;
+  --dash-green-mint: #4fb07f;
+  --dash-page: #e6e8ea;
+  --dash-frame: #ffffff;
+  --dash-surface: #f6f7f8;
+  --dash-card: #ffffff;
+  --dash-amber: #b9770a;
+  --dash-amber-bg: #fdf6e3;
+  --dash-dark-card: #07241a;
+  /* Outer app-frame shell background. On light a pure-white rounded shell sits
+   * on the soft grey page, matching the comp's layered-frame look. */
+  --dash-shell: #ffffff;
 }
