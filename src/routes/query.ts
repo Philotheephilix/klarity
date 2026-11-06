@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ServerDeps } from '../server.js';
-import { descriptorHash } from '../hash.js';
+import { decodeBody } from './descriptor-body.js';
 
 /** The known indexed filter keys a browse query may pass through to Arkiv. */
 const BROWSE_FILTER_KEYS = [
@@ -95,28 +95,17 @@ export function registerQueryRoutes(app: FastifyInstance, deps: ServerDeps): voi
       if (row === null) {
         return reply.notFound('descriptor not found');
       }
-      // A `bytes` column reads back as { type:'bytes', value:<hex string> }.
-      // Absent/empty body → return the row as-is (pre-column rows).
-      const body = row.body as { type: 'bytes'; value: string } | undefined;
-      if (body === undefined || !body.value || body.value === '0x') {
-        return unwrapRow(row);
-      }
-      // Decode hex → UTF-8 → JSON, then verify the stored integrity hash.
-      // Any decode/parse failure is a 500, never an unhandled throw.
-      let parsed: object;
-      try {
-        const json = Buffer.from(body.value.slice(2), 'hex').toString('utf8');
-        parsed = JSON.parse(json);
-      } catch {
-        return reply.internalServerError('body decode failed');
-      }
-      const storedHash = (row.bodyHash as { type: 'str'; value: string } | undefined)
-        ?.value;
-      if (descriptorHash(parsed) !== storedHash) {
-        return reply.internalServerError('body hash mismatch');
+      // Absent/empty body → return the row as-is (pre-column rows). A decode or
+      // hash-mismatch failure is a 500, never an unhandled throw.
+      const bodyResult = decodeBody(row);
+      if (!bodyResult.ok) {
+        if (bodyResult.reason === 'absent') return unwrapRow(row);
+        return reply.internalServerError(
+          bodyResult.reason === 'decode' ? 'body decode failed' : 'body hash mismatch',
+        );
       }
       const out = unwrapRow(row);
-      out.formatBlock = parsed;
+      out.formatBlock = bodyResult.formatBlock;
       return out;
     },
   );

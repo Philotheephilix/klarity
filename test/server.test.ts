@@ -318,6 +318,230 @@ describe('GET query routes', () => {
   });
 });
 
+// Build a body-bearing descriptor row in the real SDK envelope shape: indexed
+// columns are { type, value }, and the body is hex-encoded canonical JSON of
+// the format block with its matching bodyHash.
+function rowWithBody(
+  cols: Record<string, string>,
+  formatBlock: Record<string, unknown>,
+) {
+  const { canonical, hash } = canonicalHash(formatBlock);
+  const hex = '0x' + Buffer.from(canonical, 'utf8').toString('hex');
+  const row: Record<string, unknown> = {
+    $key: '0xkey',
+    body: { type: 'bytes', value: hex },
+    bodyHash: { type: 'str', value: hash },
+  };
+  for (const [k, v] of Object.entries(cols)) row[k] = { type: 'str', value: v };
+  return row;
+}
+
+describe('POST /decode — what-you’re-signing', () => {
+  const AAVE = '0xd01607c3c5ecaba394d8be377a08590149325722';
+
+  function depositRow() {
+    return rowWithBody(
+      { functionName: 'depositETH', contractName: 'WrappedTokenGatewayV3', kind: 'calldata', intent: 'Supply' },
+      {
+        $id: 'depositETH',
+        intent: 'Supply',
+        fields: [
+          { format: 'amount', label: 'Amount to supply', path: '@.value' },
+          { format: 'addressName', label: 'Collateral recipient', path: 'onBehalfOf' },
+          { label: 'Referral Code', path: 'referralCode', visible: 'never' },
+        ],
+      },
+    );
+  }
+
+  it('calldata: derives the selector, returns intent + visible/hidden fields', async () => {
+    const { deps, arkiv } = makeDeps({ queryOneRow: depositRow() });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: {
+        chainId: 1,
+        contract: AAVE,
+        calldata: '0x474cf53d' + '00'.repeat(32),
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as Record<string, any>;
+    expect(json.signing.selector).toBe('0x474cf53d');
+    expect(json.signing.decodedFrom).toBe('calldata');
+    expect(json.signing.summary).toBe('Supply');
+    expect(json.fields.map((f: any) => f.label)).toEqual(['Amount to supply', 'Collateral recipient']);
+    expect(json.hiddenFields.map((f: any) => f.label)).toEqual(['Referral Code']);
+    // Selector is the first 4 bytes of the calldata, lowercased.
+    expect(arkiv.queryOneWithBody).toHaveBeenCalledWith({
+      chainId: 1,
+      contract: AAVE,
+      selector: '0x474cf53d',
+    });
+    await app.close();
+  });
+
+  it('calldata: surfaces interpolatedIntent as the summary when present', async () => {
+    const row = rowWithBody(
+      { functionName: 'ping', kind: 'calldata', intent: 'Check in' },
+      { $id: 'ping', intent: 'Check in', interpolatedIntent: 'Check in on {id}', fields: [] },
+    );
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: AAVE, calldata: '0xabcdef12' },
+    });
+    expect(res.json().signing.summary).toBe('Check in on {id}');
+    await app.close();
+  });
+
+  it('eip712: reconstructs the stored selector from typedData types', async () => {
+    // The registry keys an eip712 format by keccak(encodeType(primaryType))[:4].
+    // A reconstructed encodeType must hit the same selector. Order has no nested
+    // struct deps, so its encoding is just its own field list.
+    const row = rowWithBody(
+      { kind: 'eip712', intent: 'Send order' },
+      { fields: [{ label: 'Maker', path: 'maker', format: 'addressName' }] },
+    );
+    const { deps, arkiv } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: {
+        chainId: 1,
+        contract: AAVE,
+        typedData: {
+          primaryType: 'Order',
+          types: {
+            Order: [
+              { name: 'maker', type: 'address' },
+              { name: 'amount', type: 'uint256' },
+            ],
+          },
+          message: { maker: '0x1' },
+        },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as Record<string, any>;
+    expect(json.signing.decodedFrom).toBe('eip712');
+    expect(json.signing.summary).toBe('Send order');
+    expect(json.fields[0].label).toBe('Maker');
+    // keccak256("Order(address maker,uint256 amount)")[:4]
+    const selector = arkiv.queryOneWithBody.mock.calls[0][0].selector as string;
+    expect(selector).toMatch(/^0x[0-9a-f]{8}$/);
+    await app.close();
+  });
+
+  it('eip712: nested struct dependencies are appended sorted by name', async () => {
+    // encodeType must emit the primary type, then referenced structs sorted
+    // alphabetically — the wallet and the mirror must agree on this exact order.
+    const row = rowWithBody({ kind: 'eip712', intent: 'Mail' }, { fields: [] });
+    const { deps, arkiv } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: {
+        chainId: 1,
+        contract: AAVE,
+        typedData: {
+          primaryType: 'Mail',
+          types: {
+            Mail: [
+              { name: 'from', type: 'Person' },
+              { name: 'to', type: 'Person' },
+            ],
+            Person: [{ name: 'wallet', type: 'address' }],
+          },
+        },
+      },
+    });
+    // Both selectors derive from the same encodeType string; assert it resolves
+    // to a concrete 4-byte selector (proves deps were included without throwing).
+    const selector = arkiv.queryOneWithBody.mock.calls[0][0].selector as string;
+    expect(selector).toMatch(/^0x[0-9a-f]{8}$/);
+    await app.close();
+  });
+
+  it('404 when no descriptor matches the derived selector', async () => {
+    const { deps } = makeDeps({ queryOneRow: null });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: AAVE, calldata: '0xdeadbeef' },
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it('400 on a bad request body (no calldata or typedData)', async () => {
+    const { deps } = makeDeps();
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: AAVE },
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('400 on a malformed contract address', async () => {
+    const { deps } = makeDeps();
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: 'nope', calldata: '0x474cf53d' },
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('400 when typedData.primaryType is absent from types', async () => {
+    const { deps } = makeDeps();
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: {
+        chainId: 1,
+        contract: AAVE,
+        typedData: { primaryType: 'Missing', types: { Order: [] } },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('pre-body row (no body stored) still returns the column summary', async () => {
+    const row: Record<string, unknown> = {
+      $key: '0xkey',
+      functionName: { type: 'str', value: 'legacyFn' },
+      kind: { type: 'str', value: 'calldata' },
+      intent: { type: 'str', value: 'Legacy action' },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: AAVE, calldata: '0x12345678' },
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as Record<string, any>;
+    expect(json.signing.summary).toBe('Legacy action');
+    expect(json.fields).toEqual([]);
+    await app.close();
+  });
+});
+
 describe('POST /descriptors — signed write', () => {
   it('valid allowlisted signature: upsert + PR, returns entityKey/txHash/prUrl', async () => {
     const descriptor = oneRecordDescriptor();

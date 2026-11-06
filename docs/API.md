@@ -147,6 +147,112 @@ curl 'http://127.0.0.1:3000/nonce/0x9236c57baeb306d5f4bb9e6e2a5f15b74c1af305'
 
 ---
 
+## Decode route
+
+### `POST /decode`
+
+"What am I signing?" A wallet posts the call it is about to sign — either raw
+`calldata` or an EIP-712 `typedData` payload — and gets back a human-readable
+account of what it means, drawn from the mirrored ERC-7730 descriptor: the
+intent, the interpolated-intent sentence, and every labeled field with its
+format and visibility.
+
+> **Labels, not values.** Klarity does not store parameter ABI types, so this
+> route names *what each field means* (and whether the wallet should show it)
+> but does **not** ABI-decode concrete argument values out of the calldata. The
+> raw input is echoed back under `raw` so the caller still has it.
+
+**Request body — one of two input modes**
+
+Calldata mode:
+
+```jsonc
+{
+  "chainId": 1,
+  "contract": "0xd01607c3c5ecaba394d8be377a08590149325722",
+  "calldata": "0x474cf53d…"   // 0x + 4-byte selector + args
+}
+```
+
+EIP-712 mode — the selector is reconstructed from the typed-data types
+(`keccak256(encodeType(primaryType))[:4]`, matching how the mirror keys eip712
+descriptors). An explicit `selector` may be supplied as an override:
+
+```jsonc
+{
+  "chainId": 1,
+  "contract": "0x119c71d3bbac22029622cbaec24854d3d32d2828",
+  "typedData": {
+    "primaryType": "Order",
+    "types": { "Order": [ { "name": "maker", "type": "address" }, … ] },
+    "message": { /* … */ }
+  },
+  "selector": "0x7b63e942"      // optional override
+}
+```
+
+**Responses**
+
+- `200` — the signing breakdown (shape below).
+- `400` — non-numeric `chainId`; malformed `contract`; `calldata` shorter than a
+  4-byte selector; neither `calldata` nor `typedData` supplied; or `typedData`
+  without a resolvable `primaryType`/`types` (and no explicit `selector`).
+- `404` — no mirrored descriptor for the derived `(chainId, contract, selector)`.
+- `500` — the stored descriptor body failed to decode or its integrity hash
+  did not match.
+
+**Response shape**
+
+```jsonc
+{
+  "signing": {
+    "chainId": 1,
+    "contract": "0xd01607c3c5ecaba394d8be377a08590149325722",
+    "selector": "0x474cf53d",
+    "kind": "calldata",             // "calldata" | "eip712"
+    "decodedFrom": "calldata",
+    "contractName": "WrappedTokenGatewayV3",
+    "functionName": "depositETH",
+    "intent": "Supply",
+    "interpolatedIntent": null,      // the "{placeholder}" sentence, if any
+    "summary": "Supply"             // interpolatedIntent || intent || functionName
+  },
+  "fields": [                        // visible fields the wallet should show
+    { "label": "Amount to supply", "path": "@.value", "format": "amount", "hidden": false },
+    { "label": "Collateral recipient", "path": "onBehalfOf", "format": "addressName", "hidden": false, "params": { … } }
+  ],
+  "hiddenFields": [                  // descriptor's visible:"never" fields
+    { "label": "Referral Code", "path": "referralCode", "hidden": true }
+  ],
+  "note": "Labels and intent come from the ERC-7730 descriptor. Argument values are not ABI-decoded.",
+  "raw": { "calldata": "0x474cf53d…" }
+}
+```
+
+> A pre-body row (written before the body-store feature) still returns a `200`
+> with the `signing` summary from the indexed columns, but `fields` is empty —
+> field labels live only in the stored body.
+
+**Examples**
+
+```bash
+# Calldata — Aave WrappedTokenGatewayV3.depositETH:
+curl -X POST http://127.0.0.1:3000/decode -H 'Content-Type: application/json' -d '{
+  "chainId": 1,
+  "contract": "0xd01607c3c5ecaba394d8be377a08590149325722",
+  "calldata": "0x474cf53d0000000000000000000000000000000000000000000000000000000000000001"
+}'
+
+# EIP-712 — 1inch limit order (selector reconstructed from types):
+curl -X POST http://127.0.0.1:3000/decode -H 'Content-Type: application/json' -d '{
+  "chainId": 1,
+  "contract": "0x119c71d3bbac22029622cbaec24854d3d32d2828",
+  "typedData": { "primaryType": "Order", "types": { "Order": [ … ] } }
+}'
+```
+
+---
+
 ## Write route
 
 ### `POST /descriptors`

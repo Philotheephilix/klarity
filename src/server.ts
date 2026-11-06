@@ -6,6 +6,7 @@ import type { GitHubClient } from './github.js';
 import type { Db } from './db.js';
 import type { Config } from './config.js';
 import { registerQueryRoutes } from './routes/query.js';
+import { registerDecodeRoute } from './routes/decode.js';
 import { registerWriteRoutes } from './routes/write.js';
 import { registerWebhookRoute } from './routes/webhook.js';
 
@@ -58,6 +59,7 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   void app.register(sensible);
 
   registerQueryRoutes(app, deps);
+  registerDecodeRoute(app, deps);
   registerWriteRoutes(app, deps);
   registerWebhookRoute(app, deps);
 
