@@ -89,7 +89,16 @@ export async function buildInsight(
         ? null
         : await fetchVerified(chainId, contract, selector, deps.verifiedDeps);
 
-    return { content: asInsightContent(renderInsight(decode, verified)) };
+    const interactionContext =
+      decode !== null && selector !== null
+        ? { chainId, contract, selector }
+        : undefined;
+
+    return {
+      content: asInsightContent(
+        renderInsight(decode, verified, interactionContext),
+      ),
+    };
   } catch {
     return { content: asInsightContent(renderInsight(null, null)) };
   }

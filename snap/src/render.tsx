@@ -19,6 +19,8 @@ import type { DecodeResponse, VerifiedBlock } from '@klarity/sdk';
 import type { GenericSnapElement } from '@metamask/snaps-sdk/jsx';
 import { Box, Divider, Heading, Row, Text } from '@metamask/snaps-sdk/jsx';
 
+import { renderVouchForm } from './vouch-form.js';
+
 /**
  * The Snaps JSX automatic runtime does not ship a global `JSX` namespace, so we
  * bind `JSX.Element` to the SDK's own element type. This keeps the documented
@@ -56,11 +58,15 @@ function trustLine(verified: VerifiedBlock | null): string {
  * @param decode - The decoded signing summary, or `null` when Klarity has no
  * clear-signing for this transaction.
  * @param verified - The two-tier verified block, or `null` when absent.
+ * @param interactionContext - The chain/contract/selector the vouch is keyed to.
+ * When provided AND a decode exists, the pre-sign capture form is embedded below
+ * the trust line. Omitted (e.g. a plain transfer with no selector) → no form.
  * @returns The JSX element for the Snaps insight panel.
  */
 export function renderInsight(
   decode: DecodeResponse | null,
   verified: VerifiedBlock | null,
+  interactionContext?: { chainId: number; contract: string; selector: string },
 ): JSX.Element {
   if (decode === null) {
     return (
@@ -100,6 +106,13 @@ export function renderInsight(
 
       <Divider />
       <Text>{trustLine(verified)}</Text>
+
+      {interactionContext
+        ? renderVouchForm({
+            contract: interactionContext.contract,
+            interactionContext,
+          })
+        : null}
     </Box>
   );
 }

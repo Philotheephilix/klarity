@@ -16,6 +16,41 @@ function renderToString(element: unknown): string {
   return JSON.stringify(element);
 }
 
+/**
+ * Recursively walk a Snaps JSX tree collecting every element whose `props.name`
+ * matches the given name. Children nest under `props.children`, which may be a
+ * single node or an array.
+ */
+function findByName(element: unknown, name: string): unknown[] {
+  const found: unknown[] = [];
+  const visit = (node: unknown): void => {
+    if (node === null || typeof node !== 'object') {
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        visit(child);
+      }
+      return;
+    }
+    const el = node as { props?: Record<string, unknown> };
+    if (el.props && el.props.name === name) {
+      found.push(node);
+    }
+    if (el.props && 'children' in el.props) {
+      visit(el.props.children);
+    }
+  };
+  visit(element);
+  return found;
+}
+
+const interactionContext = {
+  chainId: 1,
+  contract: '0xcontract',
+  selector: '0xa9059cbb',
+};
+
 const visibleFields: SigningField[] = [
   { label: 'Recipient', path: 'to', hidden: false },
   { label: 'Amount', path: 'value', format: 'token', hidden: false },
@@ -145,6 +180,24 @@ describe('renderInsight', () => {
     for (const s of strings) {
       expect(s).not.toMatch(EMOJI_RE);
     }
+  });
+
+  it('embeds the klarity-vouch form when a decode and interactionContext are present', () => {
+    const el = renderInsight(makeDecode(), efVerified, interactionContext);
+    const forms = findByName(el, 'klarity-vouch');
+    expect(forms.length).toBe(1);
+  });
+
+  it('does NOT embed the vouch form when decode is null', () => {
+    const el = renderInsight(null, null, interactionContext);
+    const forms = findByName(el, 'klarity-vouch');
+    expect(forms.length).toBe(0);
+  });
+
+  it('does NOT embed the vouch form when interactionContext is omitted', () => {
+    const el = renderInsight(makeDecode(), efVerified);
+    const forms = findByName(el, 'klarity-vouch');
+    expect(forms.length).toBe(0);
   });
 
   it('returns a JSX element object with a type', () => {
