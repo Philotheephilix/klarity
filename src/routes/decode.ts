@@ -284,14 +284,19 @@ export function registerDecodeRoute(app: FastifyInstance, deps: ServerDeps): voi
     const contractName = (row.contractName as { value?: string } | undefined)?.value ?? '';
     const kind = (row.kind as { value?: string } | undefined)?.value ?? '';
     const intent = (row.intent as { value?: string } | undefined)?.value ?? '';
-    const functionSignature =
-      (row.functionSignature as { value?: string } | undefined)?.value ?? '';
 
     // Fields + the interpolated sentence live only in the format block. A
     // pre-body row (no body stored) still yields the summary from the columns.
     let fields: SigningField[] = [];
     let interpolatedIntent: string | undefined;
     let bodyIntent: string | undefined;
+    // The name-bearing function signature is persisted INSIDE the body under the
+    // reserved `__signature` field (calldata descriptors only). ERC-7730 paths
+    // reference parameters by name, so this — not the name-stripped indexed
+    // column — is what lets `decodeValues` resolve named paths. Absent on old
+    // records / eip712 / anything missing it: the decode simply stays
+    // labels-only.
+    let functionSignature = '';
     if (bodyResult.ok) {
       const fb = bodyResult.formatBlock;
       if (Array.isArray(fb.fields)) {
@@ -301,6 +306,7 @@ export function registerDecodeRoute(app: FastifyInstance, deps: ServerDeps): voi
       }
       if (typeof fb.interpolatedIntent === 'string') interpolatedIntent = fb.interpolatedIntent;
       if (typeof fb.intent === 'string') bodyIntent = fb.intent;
+      if (typeof fb.__signature === 'string') functionSignature = fb.__signature;
     } else if (bodyResult.reason === 'decode' || bodyResult.reason === 'mismatch') {
       return reply.internalServerError(`descriptor body ${bodyResult.reason}`);
     }
@@ -340,6 +346,7 @@ export function registerDecodeRoute(app: FastifyInstance, deps: ServerDeps): voi
         decodedFrom === 'calldata'
           ? { calldata: (body.calldata as string).toLowerCase() }
           : { typedData: body.typedData },
+      ...(functionSignature ? { functionSignature } : {}),
     };
   });
 }

@@ -41,15 +41,15 @@ const ONEINCH = '0x111111125421ca6dc452d289314280a0f8842a65';
 
 describe('POST /decode — ABI value-decode (Task 1)', () => {
   // The stored functionSignature is the canonical signature with parameter
-  // NAMES preserved (so named ERC-7730 paths resolve). This is what lets the
-  // route map decoded positional args onto each field's `path`.
+  // NAMES preserved (so named ERC-7730 paths resolve). It lives inside the body
+  // under the reserved `__signature` field (not an indexed column) — this is
+  // what lets the route map decoded positional args onto each field's `path`.
   const SIG = 'unoswap(address srcToken, uint256 amount, uint256 minReturn, uint256 pool)';
 
   function unoswapRow() {
     return rowWithBody(
       {
         functionName: 'unoswap',
-        functionSignature: SIG,
         contractName: '1inch',
         kind: 'calldata',
         intent: 'Swap',
@@ -57,6 +57,7 @@ describe('POST /decode — ABI value-decode (Task 1)', () => {
       {
         $id: 'unoswap',
         intent: 'Swap',
+        __signature: SIG,
         fields: [
           { format: 'addressName', label: 'Token', path: 'srcToken' },
           { format: 'amount', label: 'Amount', path: 'amount' },

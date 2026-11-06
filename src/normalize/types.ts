@@ -33,6 +33,16 @@ export interface EntityRecord {
   eip712PrimaryType?: string;
   /** `$schema` version the descriptor targets. */
   schemaVersion: string;
-  /** The full, self-contained ERC-7730 format block (includes+refs resolved). */
+  /**
+   * The full, self-contained ERC-7730 format block (includes+refs resolved).
+   *
+   * For calldata descriptors this additionally carries a reserved
+   * `__signature` field: the raw, name-bearing ERC-7730 format-block key
+   * (e.g. `depositETH(address pool, address onBehalfOf, uint16 referralCode)`).
+   * It is persisted inside the non-indexed body blob (not a new indexed
+   * column), so `/decode` can resolve ERC-7730 paths that reference parameters
+   * by name. Absent on eip712 descriptors (no calldata signature) and on any
+   * record written before this field existed.
+   */
   formatBlock: Record<string, unknown>;
 }

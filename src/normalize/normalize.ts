@@ -84,6 +84,12 @@ export function normalizeDescriptor(
       const intent = typeof formatBlock['intent'] === 'string' ? (formatBlock['intent'] as string) : '';
 
       if (kind === 'calldata') {
+        // Persist the raw, name-bearing format-block key inside the body under a
+        // reserved field. ERC-7730 field paths reference parameters by NAME, so
+        // the name-stripped `functionSignature` column cannot resolve them; the
+        // body blob (non-indexed bytes, ~129.5KB) holds the full key without
+        // hitting the 128-byte str cap. Spread into a fresh object so the shared
+        // resolved-doc format block is not mutated.
         records.push({
           chainId: deployment.chainId,
           contract: deployment.address.toLowerCase(),
@@ -97,7 +103,7 @@ export function normalizeDescriptor(
           owner,
           sourcePath,
           schemaVersion,
-          formatBlock,
+          formatBlock: { ...formatBlock, __signature: key },
         });
       } else {
         // eip712: the format key IS the primary type's type-encoding string.
