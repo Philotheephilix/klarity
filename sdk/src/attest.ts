@@ -282,25 +282,37 @@ export class KlarityAttester {
     const ranked: PublicVouch[] = [];
     for (const a of candidates) {
       if (!isLive(a, BigInt(Math.floor(Date.now() / 1000)))) continue;
-      const decoded = decodePublicData(a.data);
-      // Subject binding: the vouch must name THIS descriptor. A genuine
-      // interaction tx is not enough — without this check an attester could
-      // reuse a real tx to vouch for any descriptor (wrong-subject forgery).
-      if (decoded.descriptorHash.toLowerCase() !== hash.toLowerCase()) continue;
-      const ok = await this.verifyInteraction(opts.provider, {
-        contract: decoded.contract,
-        attester: a.attester,
-        interactionTxHash: decoded.interactionTxHash,
-      });
-      if (!ok) continue;
-      const key = a.attester.toLowerCase();
-      if (seen.has(key)) continue; // dedupe: one vouch per attester
-      seen.add(key);
-      ranked.push({
-        attester: a.attester,
-        interactionTxHash: decoded.interactionTxHash,
-        attestationUID: a.uid,
-      });
+      try {
+        // The public Tier-2 schema is permissionless, so a vouch may carry
+        // malformed/empty data. A decode throw (e.g. BUFFER_OVERRUN on '0x')
+        // must skip that one attestation — never crash the whole verification.
+        const decoded = decodePublicData(a.data);
+        // Subject binding: the vouch must name THIS descriptor. A genuine
+        // interaction tx is not enough — without this check an attester could
+        // reuse a real tx to vouch for any descriptor (wrong-subject forgery).
+        if (decoded.descriptorHash.toLowerCase() !== hash.toLowerCase()) continue;
+        // Chain binding: the vouch must claim THIS attester's chain. Otherwise a
+        // vouch asserting a foreign chain could be satisfied by an interaction
+        // tx on this one. Skip (don't count), same as a failed interaction.
+        if (decoded.chainId !== this.profile.chainId) continue;
+        const ok = await this.verifyInteraction(opts.provider, {
+          contract: decoded.contract,
+          attester: a.attester,
+          interactionTxHash: decoded.interactionTxHash,
+        });
+        if (!ok) continue;
+        const key = a.attester.toLowerCase();
+        if (seen.has(key)) continue; // dedupe: one vouch per attester
+        seen.add(key);
+        ranked.push({
+          attester: a.attester,
+          interactionTxHash: decoded.interactionTxHash,
+          attestationUID: a.uid,
+        });
+      } catch {
+        // Undecodable or otherwise-malformed vouch: skip, never count, never throw.
+        continue;
+      }
     }
     return { publicVouches: ranked.length, rankedAttesters: ranked };
   }

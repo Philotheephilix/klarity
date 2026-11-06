@@ -184,6 +184,50 @@ describe('KlarityAttester.verifyPublic + verifyDescriptor', () => {
     expect(r.rankedAttesters).toHaveLength(0);
   });
 
+  it('skips undecodable vouches (0x / malformed data) without rejecting, keeping valid ones (A1 griefing DoS)', async () => {
+    // The public Tier-2 schema is permissionless, so anyone can post an
+    // attestation with empty/garbage data. decodePublicData('0x') throws
+    // (BUFFER_OVERRUN). A single bad vouch must NOT crash verification nor be
+    // counted — the valid vouch must still come through.
+    const a = attesterWith([
+      publicAttestation({ attester: ATTESTER_B, data: '0x', uid: '0x' + 'e1'.repeat(32) }),
+      publicAttestation({ attester: ATTESTER_B, data: '0xdeadbeef', uid: '0x' + 'e2'.repeat(32) }),
+      publicAttestation({ attester: ATTESTER_A, data: pubData(ATTESTER_A, TX_OK), uid: '0x' + 'e3'.repeat(32) }),
+    ]);
+    const r = await a.verifyPublic(DESCRIPTOR, { provider });
+    expect(r.publicVouches).toBe(1);
+    expect(r.rankedAttesters).toHaveLength(1);
+    expect(r.rankedAttesters[0].attester.toLowerCase()).toBe(ATTESTER_A);
+  });
+
+  it('skips a vouch whose encoded chainId differs from profile.chainId, accepts a matching one (A2 chain binding)', async () => {
+    // A vouch claiming a foreign chain must not be satisfiable by an interaction
+    // tx on this chain. Same skip-treatment as a failed interaction check.
+    // ATTESTER_B pointing at TX_FORGED is a genuinely valid interaction
+    // (TX_FORGED is mined, to==CONTRACT, from==ATTESTER_B). The ONLY reason it
+    // must be excluded is the foreign chainId — isolating the A2 guard.
+    const wrongChain = encodePublicData({
+      descriptorHash: descriptorHash(DESCRIPTOR),
+      contract: CONTRACT,
+      chainId: 999, // != PROFILE.chainId (1)
+      interactionTxHash: TX_FORGED,
+    });
+    const rightChain = encodePublicData({
+      descriptorHash: descriptorHash(DESCRIPTOR),
+      contract: CONTRACT,
+      chainId: PROFILE.chainId, // == 1
+      interactionTxHash: TX_OK,
+    });
+    const a = attesterWith([
+      publicAttestation({ attester: ATTESTER_B, data: wrongChain, uid: '0x' + 'f1'.repeat(32) }),
+      publicAttestation({ attester: ATTESTER_A, data: rightChain, uid: '0x' + 'f2'.repeat(32) }),
+    ]);
+    const r = await a.verifyPublic(DESCRIPTOR, { provider });
+    expect(r.publicVouches).toBe(1);
+    expect(r.rankedAttesters).toHaveLength(1);
+    expect(r.rankedAttesters[0].attester.toLowerCase()).toBe(ATTESTER_A);
+  });
+
   it('verifyEf returns not-approved when efSchemaUID is empty (unregistered chain)', async () => {
     // Mirror of the verifyPublic empty-schema guard: on a chain with no EF
     // schema registered, verifyEf must short-circuit to not-approved rather
