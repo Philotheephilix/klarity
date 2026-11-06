@@ -111,7 +111,14 @@ function sign(secret: string, body: string): string {
 
 describe('GET query routes', () => {
   it('returns a seeded descriptor for an identity lookup', async () => {
-    const row = { $key: '0xkey', chainId: 1, selector: '0x12345678' };
+    // Real SDK row shape: every column is a { type, value } envelope and a
+    // u64 reads back as a BigInt. The route must unwrap these to plain JSON
+    // (a raw BigInt would 500 Fastify's serializer).
+    const row = {
+      $key: '0xkey',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
+    };
     const { deps, arkiv } = makeDeps({ queryOneRow: row });
     const app = buildServer(deps);
     const res = await app.inject({
@@ -119,7 +126,7 @@ describe('GET query routes', () => {
       url: '/descriptors/1/0xAbC/0x12345678',
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ chainId: 1 });
+    expect(res.json()).toMatchObject({ chainId: 1, selector: '0x12345678' });
     expect(arkiv.queryOneWithBody).toHaveBeenCalledWith({
       chainId: 1,
       contract: '0xabc',
@@ -133,8 +140,8 @@ describe('GET query routes', () => {
     const canonical = canonicalHash(formatBlock).canonical;
     const row = {
       $key: '0xkey',
-      chainId: 1,
-      selector: '0x12345678',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
       body: { type: 'bytes', value: '0x' + Buffer.from(canonical, 'utf8').toString('hex') },
       bodyHash: { type: 'str', value: descriptorHash(formatBlock) },
     };
@@ -145,7 +152,7 @@ describe('GET query routes', () => {
       url: '/descriptors/1/0xabc/0x12345678',
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ formatBlock });
+    expect(res.json()).toMatchObject({ formatBlock, chainId: 1 });
     await app.close();
   });
 
@@ -154,8 +161,8 @@ describe('GET query routes', () => {
     const canonical = canonicalHash(formatBlock).canonical;
     const row = {
       $key: '0xkey',
-      chainId: 1,
-      selector: '0x12345678',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
       body: { type: 'bytes', value: '0x' + Buffer.from(canonical, 'utf8').toString('hex') },
       bodyHash: { type: 'str', value: descriptorHash({ intent: 'Tampered' }) },
     };
@@ -172,8 +179,8 @@ describe('GET query routes', () => {
   it('malformed body -> 500, not an unhandled throw', async () => {
     const row = {
       $key: '0xkey',
-      chainId: 1,
-      selector: '0x12345678',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
       // Not valid UTF-8 JSON once hex-decoded.
       body: { type: 'bytes', value: '0xdeadbeef' },
       bodyHash: { type: 'str', value: '0x00' },
@@ -189,7 +196,11 @@ describe('GET query routes', () => {
   });
 
   it('row present but no body field (pre-column row) -> 200, no formatBlock', async () => {
-    const row = { $key: '0xkey', chainId: 1, selector: '0x12345678' };
+    const row = {
+      $key: '0xkey',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
+    };
     const { deps } = makeDeps({ queryOneRow: row });
     const app = buildServer(deps);
     const res = await app.inject({
@@ -215,12 +226,16 @@ describe('GET query routes', () => {
   });
 
   it('contract lookup returns all formats', async () => {
-    const rows = [{ $key: '0x1' }, { $key: '0x2' }];
+    const rows = [
+      { $key: '0x1', chainId: { type: 'u64', value: 1n } },
+      { $key: '0x2', chainId: { type: 'u64', value: 1n } },
+    ];
     const { deps, arkiv } = makeDeps({ queryManyRows: rows });
     const app = buildServer(deps);
     const res = await app.inject({ method: 'GET', url: '/descriptors/1/0xabc' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toHaveLength(2);
+    expect(res.json()).toMatchObject([{ chainId: 1 }, { chainId: 1 }]);
     expect(arkiv.queryMany).toHaveBeenCalledWith({ chainId: 1, contract: '0xabc' });
     await app.close();
   });
@@ -241,7 +256,14 @@ describe('GET query routes', () => {
   });
 
   it('browse ignores functionSignature and carries no body/bodyHash', async () => {
-    const rows = [{ $key: '0x1', chainId: 1 }];
+    const rows = [
+      {
+        $key: '0x1',
+        chainId: { type: 'u64', value: 1n },
+        body: { type: 'bytes', value: '0xdead' },
+        bodyHash: { type: 'str', value: '0x00' },
+      },
+    ];
     const { deps, arkiv } = makeDeps({ queryManyRows: rows });
     const app = buildServer(deps);
     const res = await app.inject({
@@ -253,6 +275,7 @@ describe('GET query routes', () => {
     expect(arkiv.queryMany).toHaveBeenCalledWith({ entityName: 'aave' });
     const json = res.json() as Record<string, unknown>[];
     for (const r of json) {
+      expect(r.chainId).toBe(1); // unwrapped from { type:'u64', value:1n }
       expect(r).not.toHaveProperty('body');
       expect(r).not.toHaveProperty('bodyHash');
     }

@@ -21,6 +21,46 @@ const BROWSE_FILTER_KEYS = [
 type BrowseQuery = Record<string, string | undefined>;
 
 /**
+ * An Arkiv column reads back as a `{ type, value }` envelope, and a `u64`'s
+ * value is a BigInt — which Fastify's JSON serializer refuses. Unwrap a row
+ * into plain JSON: drop the envelope, coerce a u64 BigInt to a number, and
+ * strip the internal `body`/`bodyHash` columns (the body is surfaced as a
+ * decoded `formatBlock`; bodyHash is an integrity detail, never part of the
+ * response). `$key` and any already-plain value pass through unchanged.
+ */
+type ArkivValue = { type: string; value: unknown };
+
+function isArkivValue(v: unknown): v is ArkivValue {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'type' in v &&
+    'value' in v &&
+    typeof (v as { type: unknown }).type === 'string'
+  );
+}
+
+function unwrapValue(v: unknown): unknown {
+  if (typeof v === 'bigint') return Number(v);
+  if (isArkivValue(v)) {
+    const inner = v.value;
+    if (v.type === 'u64' && typeof inner === 'bigint') return Number(inner);
+    if (typeof inner === 'bigint') return inner.toString();
+    return inner;
+  }
+  return v;
+}
+
+function unwrapRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(row)) {
+    if (key === 'body' || key === 'bodyHash') continue; // internal columns
+    out[key] = unwrapValue(val);
+  }
+  return out;
+}
+
+/**
  * Read-only query routes: look up mirrored descriptors by identity, by contract,
  * or by a filtered browse. Also the nonce-suggestion convenience endpoint.
  *
@@ -50,7 +90,7 @@ export function registerQueryRoutes(app: FastifyInstance, deps: ServerDeps): voi
       // Absent/empty body → return the row as-is (pre-column rows).
       const body = row.body as { type: 'bytes'; value: string } | undefined;
       if (body === undefined || !body.value || body.value === '0x') {
-        return row;
+        return unwrapRow(row);
       }
       // Decode hex → UTF-8 → JSON, then verify the stored integrity hash.
       // Any decode/parse failure is a 500, never an unhandled throw.
@@ -66,8 +106,9 @@ export function registerQueryRoutes(app: FastifyInstance, deps: ServerDeps): voi
       if (descriptorHash(parsed) !== storedHash) {
         return reply.internalServerError('body hash mismatch');
       }
-      row.formatBlock = parsed;
-      return row;
+      const out = unwrapRow(row);
+      out.formatBlock = parsed;
+      return out;
     },
   );
 
@@ -83,7 +124,7 @@ export function registerQueryRoutes(app: FastifyInstance, deps: ServerDeps): voi
         chainId,
         contract: req.params.address.toLowerCase(),
       });
-      return rows;
+      return rows.map(unwrapRow);
     },
   );
 
@@ -110,7 +151,7 @@ export function registerQueryRoutes(app: FastifyInstance, deps: ServerDeps): voi
       return reply.badRequest('at least one filter is required');
     }
     const rows = await arkiv.queryMany(filter);
-    return rows;
+    return rows.map(unwrapRow);
   });
 
   // Nonce suggestion. The server stores no next-nonce counter (the Db tracks
