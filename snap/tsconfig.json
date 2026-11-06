@@ -3,6 +3,8 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ES2022",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@metamask/snaps-sdk",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
