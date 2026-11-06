@@ -78,6 +78,8 @@ export interface DecodeSigning {
   decodedFrom: string;
   contractName?: string;
   functionName?: string;
+  /** Canonical (name-bearing) function signature the calldata was decoded against. */
+  functionSignature?: string;
   intent?: string;
   interpolatedIntent: string | null;
   summary: string;
@@ -90,6 +92,14 @@ export interface SigningField {
   format?: string;
   hidden: boolean;
   params?: Record<string, unknown>;
+  /**
+   * Canonical string form of the decoded argument at `path` (base-10 for
+   * integers, checksummed hex for addresses, 0x-hex for bytes). Present only
+   * when the calldata was ABI-decoded and the path resolved.
+   */
+  value?: string;
+  /** ABI type of the decoded argument at `path` (e.g. `uint256`, `address`). */
+  type?: string;
 }
 
 /** POST /decode response shape. */
@@ -99,6 +109,8 @@ export interface DecodeResponse {
   hiddenFields: SigningField[];
   note: string;
   raw: { calldata?: string; typedData?: unknown };
+  /** Echoed function signature, when the descriptor carried one. */
+  functionSignature?: string;
 }
 
 /** A verified public vouch (Tier 2) — an interaction-proven attestation. */
