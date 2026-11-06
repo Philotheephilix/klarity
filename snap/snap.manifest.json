@@ -7,7 +7,7 @@
     "url": "https://github.com/klarity/klarity.git"
   },
   "source": {
-    "shasum": "xyoKr2N+p1rm3jGWlmMhTgSFnubjCtlUYIYYYRobp6s=",
+    "shasum": "VRFksq+zW3KmLVAK3nAkks9VpMaWBs7KshCHuIP+iIg=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",
@@ -23,6 +23,9 @@
     },
     "endowment:network-access": {},
     "endowment:ethereum-provider": {},
+    "endowment:rpc": {
+      "dapps": true
+    },
     "snap_dialog": {},
     "snap_manage_state": {}
   },
