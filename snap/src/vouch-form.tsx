@@ -6,7 +6,7 @@
  * `Button`. The user's answer is captured BEFORE they sign; it is stored PENDING
  * and only submitted on-chain once the transaction is mined.
  *
- * Like render.tsx and prompt.tsx, this surface is deliberately HONEST and
+ * Like render.tsx, this surface is deliberately HONEST and
  * LABELS-ONLY: it shows no decoded on-chain argument values, makes no safety
  * claim, and contains no emoji. It is a pure capture form.
  *

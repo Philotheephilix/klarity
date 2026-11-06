@@ -25,21 +25,14 @@ describe('snap.manifest.json', () => {
     const keys = Object.keys(manifest.initialPermissions).sort();
     expect(keys).toEqual(
       [
+        'endowment:cronjob',
         'endowment:ethereum-provider',
         'endowment:network-access',
-        'endowment:rpc',
         'endowment:transaction-insight',
         'snap_dialog',
         'snap_manage_state',
       ].sort(),
     );
-  });
-
-  it('allows dapp origins to call the Snap over RPC', () => {
-    const rpc = manifest.initialPermissions['endowment:rpc'] as {
-      dapps?: boolean;
-    };
-    expect(rpc.dapps).toBe(true);
   });
 
   it('enables allowTransactionOrigin on transaction-insight', () => {

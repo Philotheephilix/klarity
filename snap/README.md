@@ -33,23 +33,33 @@ is not Python Flask). Snaps only install in Flask, not in release MetaMask.
    cd snap && npm install && npm run build
    ```
 
-4. **Serve the companion page.** The companion under `snap/companion/` is a
-   static page used to connect to the Snap for local testing. Serve it with any
-   static file server, for example:
-
-   ```
-   cd snap/companion && npx serve .
-   ```
-
-   Open the served page, click connect, and install the Snap when Flask
-   prompts.
-
-5. **Exercise the flow.** Submit a Sepolia transaction to a Klarity-known
-   contract.
+4. **Install the Snap and exercise the flow.** Connect to the Snap from any
+   dapp that offers a Flask connect button (or the Flask Snaps developer page)
+   and install it when Flask prompts. Then submit a Sepolia transaction to a
+   Klarity-known contract.
    - Before signing, observe the clear-signing insight panel rendered by the
-     Snap's `onTransaction` handler.
-   - After the transaction mines, observe the post-transaction rank prompt
-     driven by the `klarity_rank` RPC method and its dialog.
+     Snap's `onTransaction` handler. The panel embeds an interactive vouch
+     capture form (a 1..5 rating and a comment).
+   - Fill in the form and submit it BEFORE you sign. The Snap's `onUserInput`
+     handler validates the input and stores the vouch as PENDING in encrypted
+     Snap state, then schedules a one-off background poll.
+   - After the transaction mines, the Snap's `onCronjob` poller submits the
+     stored vouch on-chain, gated on a registered public schema UID. Nothing is
+     written until the interaction tx is mined and provable.
+
+## Trigger is in-Snap (Task 7 decision)
+
+The whole vouch flow now lives inside the Snap: capture in the
+transaction-insight panel form (`onTransaction` + `onUserInput`) and submit from
+the `onCronjob` poller once the tx is mined. There is no companion dapp and no
+manual trigger.
+
+As a result, the legacy `klarity_rank` JSON-RPC method and its `onRpcRequest`
+handler were removed, and the `endowment:rpc` permission was dropped (the
+companion dapp was its only caller). The poller uses a one-off
+`snap_scheduleBackgroundEvent` delivered to `onCronjob` — the only handler
+`@metamask/snaps-sdk@10.4.0` exposes for scheduled background events — which
+requires `endowment:cronjob`.
 
 ## Human-gated Sepolia public-tier schema registration
 
