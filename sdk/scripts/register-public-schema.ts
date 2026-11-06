@@ -36,7 +36,7 @@ interface SchemaRegistryLike {
     schema: string;
     resolverAddress: string;
     revocable: boolean;
-  }): Promise<{ wait(): Promise<string> }> | { wait(): Promise<string> };
+  }): Promise<{ wait(): Promise<string> }>;
 }
 
 /**
