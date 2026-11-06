@@ -2,6 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { parseAbiItem, decodeFunctionData, type AbiFunction, type AbiParameter } from 'viem';
 import type { ServerDeps } from '../server.js';
 import { decodeBody, eip712SelectorOf, encodeType } from './descriptor-body.js';
+import { decodePermit, type PermitDecoded } from '../decode/permit.js';
+
+/** 1inch `permitAndCall(bytes permit, bytes action)` selector. */
+const PERMIT_AND_CALL_SELECTOR = '0x5816d723';
+const PERMIT_AND_CALL_SIGNATURE = 'permitAndCall(bytes permit, bytes action)';
 
 /**
  * A single field of the clear-signing breakdown. `label`/`format`/`path` come
@@ -21,6 +26,26 @@ interface SigningField {
   params?: Record<string, unknown>;
   value?: string;
   type?: string;
+  /** Recursively-decoded inner call (1inch permitAndCall `action` bytes). */
+  inner?: DecodeResult;
+  /** Decoded permit payload (1inch permitAndCall `permit` bytes). */
+  permit?: PermitDecoded;
+}
+
+/**
+ * The response body of a /decode, also used as the shape of a nested `inner`
+ * decode. `unresolved` marks an inner call we could not resolve (no descriptor
+ * for the inner selector or malformed inner bytes) — rendered honestly, never
+ * dropped.
+ */
+interface DecodeResult {
+  signing: Record<string, unknown>;
+  fields: SigningField[];
+  hiddenFields: SigningField[];
+  note: string;
+  raw: { calldata?: string; typedData?: unknown };
+  functionSignature?: string;
+  unresolved?: boolean;
 }
 
 /** Raw POST /decode body (types unvalidated until the handler checks them). */
@@ -221,6 +246,45 @@ function decodeValues(
 export function registerDecodeRoute(app: FastifyInstance, deps: ServerDeps): void {
   const { arkiv } = deps;
 
+  /**
+   * ABI-decode `calldata` for a known inner `selector` on the same (chainId,
+   * contract): look up its descriptor via the body-bearing query, map its
+   * fields, and value-decode against its `__signature`. Returns a labels-only
+   * result on a hash/body error, an unresolved marker when no descriptor exists
+   * or the bytes are malformed. Never throws — the outer route must not 500 on
+   * an inner-decode problem.
+   */
+  async function decodeInnerCall(
+    chainId: number,
+    contract: string,
+    calldata: string,
+  ): Promise<DecodeResult> {
+    // Malformed inner calldata (no 4-byte selector): honest unknown marker.
+    if (!/^0x[0-9a-fA-F]*$/.test(calldata) || calldata.length < 10) {
+      const selector = calldata.slice(0, 10).toLowerCase();
+      return unresolvedInner(chainId, contract, selector, calldata);
+    }
+    const selector = calldata.slice(0, 10).toLowerCase();
+
+    let row: Record<string, unknown> | null;
+    try {
+      row = await arkiv.queryOneWithBody({ chainId, contract, selector });
+    } catch {
+      return unresolvedInner(chainId, contract, selector, calldata);
+    }
+    if (row === null) {
+      return unresolvedInner(chainId, contract, selector, calldata);
+    }
+
+    const bodyResult = decodeBody(row);
+    if (!bodyResult.ok) {
+      // A body we cannot trust (decode/mismatch) is not safe to present as
+      // decoded; fall back to the honest unknown marker rather than 500.
+      return unresolvedInner(chainId, contract, selector, calldata);
+    }
+    return assembleCalldataResult(row, chainId, contract, selector, calldata, bodyResult.formatBlock);
+  }
+
   app.post('/decode', async (req, reply) => {
     const body = (req.body ?? {}) as RawDecodeBody;
 
@@ -279,74 +343,230 @@ export function registerDecodeRoute(app: FastifyInstance, deps: ServerDeps): voi
       );
     }
     const bodyResult = decodeBody(row);
-
-    const functionName = (row.functionName as { value?: string } | undefined)?.value ?? '';
-    const contractName = (row.contractName as { value?: string } | undefined)?.value ?? '';
-    const kind = (row.kind as { value?: string } | undefined)?.value ?? '';
-    const intent = (row.intent as { value?: string } | undefined)?.value ?? '';
-
-    // Fields + the interpolated sentence live only in the format block. A
-    // pre-body row (no body stored) still yields the summary from the columns.
-    let fields: SigningField[] = [];
-    let interpolatedIntent: string | undefined;
-    let bodyIntent: string | undefined;
-    // The name-bearing function signature is persisted INSIDE the body under the
-    // reserved `__signature` field (calldata descriptors only). ERC-7730 paths
-    // reference parameters by name, so this — not the name-stripped indexed
-    // column — is what lets `decodeValues` resolve named paths. Absent on old
-    // records / eip712 / anything missing it: the decode simply stays
-    // labels-only.
-    let functionSignature = '';
-    if (bodyResult.ok) {
-      const fb = bodyResult.formatBlock;
-      if (Array.isArray(fb.fields)) {
-        fields = (fb.fields as FormatField[])
-          .map(toSigningField)
-          .filter((f): f is SigningField => f !== null);
-      }
-      if (typeof fb.interpolatedIntent === 'string') interpolatedIntent = fb.interpolatedIntent;
-      if (typeof fb.intent === 'string') bodyIntent = fb.intent;
-      if (typeof fb.__signature === 'string') functionSignature = fb.__signature;
-    } else if (bodyResult.reason === 'decode' || bodyResult.reason === 'mismatch') {
+    if (!bodyResult.ok && (bodyResult.reason === 'decode' || bodyResult.reason === 'mismatch')) {
       return reply.internalServerError(`descriptor body ${bodyResult.reason}`);
     }
+    const formatBlock = bodyResult.ok ? bodyResult.formatBlock : undefined;
 
-    // ABI value-decode (calldata only). Populates `value`/`type` on the fields
-    // whose `path` resolves to a decoded argument. Guarded end-to-end: any
-    // failure leaves the fields labels-only — the route never 500s on a decode
-    // problem.
-    if (decodedFrom === 'calldata' && functionSignature && typeof body.calldata === 'string') {
-      decodeValues(functionSignature, body.calldata, fields);
+    if (decodedFrom === 'eip712') {
+      // eip712 has no calldata to unwrap; assemble the labels-only summary.
+      return assembleEip712Result(row, chainId, contract, selector, body.typedData, formatBlock);
     }
-    const valuesPresent = fields.some((f) => f.value !== undefined);
 
-    const shown = fields.filter((f) => !f.hidden);
-    const hidden = fields.filter((f) => f.hidden);
+    // calldata path
+    const calldata = body.calldata as string;
+    const result = assembleCalldataResult(row, chainId, contract, selector, calldata, formatBlock);
 
-    return {
-      signing: {
-        chainId,
-        contract,
-        selector,
-        kind,
-        decodedFrom,
-        contractName,
-        functionName,
-        ...(functionSignature ? { functionSignature } : {}),
-        intent: bodyIntent || intent,
-        interpolatedIntent: interpolatedIntent ?? null,
-        summary: interpolatedIntent || bodyIntent || intent || functionName || 'Unknown action',
-      },
-      fields: shown,
-      hiddenFields: hidden,
-      note: valuesPresent
-        ? 'Labels and intent come from the ERC-7730 descriptor; argument values are ABI-decoded from the calldata.'
-        : 'Labels and intent come from the ERC-7730 descriptor. Argument values are not ABI-decoded.',
-      raw:
-        decodedFrom === 'calldata'
-          ? { calldata: (body.calldata as string).toLowerCase() }
-          : { typedData: body.typedData },
-      ...(functionSignature ? { functionSignature } : {}),
-    };
+    // --- 1inch permitAndCall unwrapping (depth 1 only) ---
+    // Trigger on name OR selector, so an unnamed/renamed wrapper still unwraps.
+    const functionName =
+      (row.functionName as { value?: string } | undefined)?.value ?? '';
+    const isPermitAndCall =
+      selector === PERMIT_AND_CALL_SELECTOR || functionName === 'permitAndCall';
+    if (isPermitAndCall) {
+      await unwrapPermitAndCall(result, chainId, contract, calldata, decodeInnerCall);
+    }
+
+    return result;
   });
+}
+
+/**
+ * Decode the `permit` + `action` of a permitAndCall calldata and attach the
+ * decoded permit and recursively-decoded inner call onto `result`'s fields.
+ * Fully guarded: any failure leaves `result` as the already-assembled outer
+ * decode — the route never throws because of the unwrap.
+ *
+ * Attachment (per task ruling): `permit` attaches to the field whose `path`
+ * ends in `permit`, `inner` to the field whose `path` ends in `action`; if a
+ * target field is absent, it attaches to the first field as a fallback so the
+ * data is always renderable (never silently dropped).
+ */
+async function unwrapPermitAndCall(
+  result: DecodeResult,
+  chainId: number,
+  contract: string,
+  calldata: string,
+  decodeInnerCall: (c: number, k: string, d: string) => Promise<DecodeResult>,
+): Promise<void> {
+  let permitBytes: string;
+  let actionBytes: string;
+  try {
+    const abi = parseAbiItem(`function ${PERMIT_AND_CALL_SIGNATURE}`);
+    if (abi.type !== 'function') return;
+    const decoded = decodeFunctionData({ abi: [abi], data: calldata as `0x${string}` });
+    const args = (decoded.args ?? []) as readonly unknown[];
+    if (typeof args[0] !== 'string' || typeof args[1] !== 'string') return;
+    permitBytes = args[0];
+    actionBytes = args[1];
+  } catch {
+    return;
+  }
+
+  // Classify + decode the permit; honest unknown on anything unrecognized.
+  let permit: PermitDecoded;
+  try {
+    permit = decodePermit(permitBytes);
+  } catch {
+    permit = { format: 'unknown', fields: [], raw: permitBytes };
+  }
+
+  // Recursively decode the inner action (one level only).
+  const inner = await decodeInnerCall(chainId, contract, actionBytes);
+
+  const all = [...result.fields, ...result.hiddenFields];
+  const permitField = all.find((f) => endsWithSeg(f.path, 'permit')) ?? all[0];
+  const actionField = all.find((f) => endsWithSeg(f.path, 'action')) ?? all[0];
+  if (permitField) permitField.permit = permit;
+  if (actionField) actionField.inner = inner;
+}
+
+/** True if an ERC-7730 path's last dotted segment equals `seg`. */
+function endsWithSeg(path: string, seg: string): boolean {
+  const parts = path.split('.').filter((s) => s.length > 0);
+  return parts[parts.length - 1] === seg;
+}
+
+/** An honest "unknown inner call" marker carrying the raw selector + bytes. */
+function unresolvedInner(
+  chainId: number,
+  contract: string,
+  selector: string,
+  calldata: string,
+): DecodeResult {
+  return {
+    signing: {
+      chainId,
+      contract,
+      selector,
+      kind: 'calldata',
+      decodedFrom: 'calldata',
+      contractName: '',
+      functionName: '',
+      intent: '',
+      interpolatedIntent: null,
+      summary: 'Unknown inner call',
+    },
+    fields: [],
+    hiddenFields: [],
+    note: 'No clear-signing descriptor for the inner call; only the raw selector is known.',
+    raw: { calldata: calldata.toLowerCase() },
+    unresolved: true,
+  };
+}
+
+/**
+ * Assemble the DecodeResult for a resolved calldata descriptor row: map the
+ * format block's fields, value-decode against the stored `__signature`, and
+ * split visible/hidden. Shared by the outer route and the inner recursion.
+ */
+function assembleCalldataResult(
+  row: Record<string, unknown>,
+  chainId: number,
+  contract: string,
+  selector: string,
+  calldata: string,
+  formatBlock: Record<string, unknown> | undefined,
+): DecodeResult {
+  const functionName = (row.functionName as { value?: string } | undefined)?.value ?? '';
+  const contractName = (row.contractName as { value?: string } | undefined)?.value ?? '';
+  const kind = (row.kind as { value?: string } | undefined)?.value ?? '';
+  const intent = (row.intent as { value?: string } | undefined)?.value ?? '';
+
+  let fields: SigningField[] = [];
+  let interpolatedIntent: string | undefined;
+  let bodyIntent: string | undefined;
+  let functionSignature = '';
+  if (formatBlock) {
+    if (Array.isArray(formatBlock.fields)) {
+      fields = (formatBlock.fields as FormatField[])
+        .map(toSigningField)
+        .filter((f): f is SigningField => f !== null);
+    }
+    if (typeof formatBlock.interpolatedIntent === 'string')
+      interpolatedIntent = formatBlock.interpolatedIntent;
+    if (typeof formatBlock.intent === 'string') bodyIntent = formatBlock.intent;
+    if (typeof formatBlock.__signature === 'string') functionSignature = formatBlock.__signature;
+  }
+
+  if (functionSignature) {
+    decodeValues(functionSignature, calldata, fields);
+  }
+  const valuesPresent = fields.some((f) => f.value !== undefined);
+  const shown = fields.filter((f) => !f.hidden);
+  const hidden = fields.filter((f) => f.hidden);
+
+  return {
+    signing: {
+      chainId,
+      contract,
+      selector,
+      kind,
+      decodedFrom: 'calldata',
+      contractName,
+      functionName,
+      ...(functionSignature ? { functionSignature } : {}),
+      intent: bodyIntent || intent,
+      interpolatedIntent: interpolatedIntent ?? null,
+      summary: interpolatedIntent || bodyIntent || intent || functionName || 'Unknown action',
+    },
+    fields: shown,
+    hiddenFields: hidden,
+    note: valuesPresent
+      ? 'Labels and intent come from the ERC-7730 descriptor; argument values are ABI-decoded from the calldata.'
+      : 'Labels and intent come from the ERC-7730 descriptor. Argument values are not ABI-decoded.',
+    raw: { calldata: calldata.toLowerCase() },
+    ...(functionSignature ? { functionSignature } : {}),
+  };
+}
+
+/** Assemble the DecodeResult for an eip712 descriptor row (labels-only). */
+function assembleEip712Result(
+  row: Record<string, unknown>,
+  chainId: number,
+  contract: string,
+  selector: string,
+  typedData: unknown,
+  formatBlock: Record<string, unknown> | undefined,
+): DecodeResult {
+  const functionName = (row.functionName as { value?: string } | undefined)?.value ?? '';
+  const contractName = (row.contractName as { value?: string } | undefined)?.value ?? '';
+  const kind = (row.kind as { value?: string } | undefined)?.value ?? '';
+  const intent = (row.intent as { value?: string } | undefined)?.value ?? '';
+
+  let fields: SigningField[] = [];
+  let interpolatedIntent: string | undefined;
+  let bodyIntent: string | undefined;
+  if (formatBlock) {
+    if (Array.isArray(formatBlock.fields)) {
+      fields = (formatBlock.fields as FormatField[])
+        .map(toSigningField)
+        .filter((f): f is SigningField => f !== null);
+    }
+    if (typeof formatBlock.interpolatedIntent === 'string')
+      interpolatedIntent = formatBlock.interpolatedIntent;
+    if (typeof formatBlock.intent === 'string') bodyIntent = formatBlock.intent;
+  }
+
+  const shown = fields.filter((f) => !f.hidden);
+  const hidden = fields.filter((f) => f.hidden);
+
+  return {
+    signing: {
+      chainId,
+      contract,
+      selector,
+      kind,
+      decodedFrom: 'eip712',
+      contractName,
+      functionName,
+      intent: bodyIntent || intent,
+      interpolatedIntent: interpolatedIntent ?? null,
+      summary: interpolatedIntent || bodyIntent || intent || functionName || 'Unknown action',
+    },
+    fields: shown,
+    hiddenFields: hidden,
+    note: 'Labels and intent come from the ERC-7730 descriptor. Argument values are not ABI-decoded.',
+    raw: { typedData },
+  };
 }

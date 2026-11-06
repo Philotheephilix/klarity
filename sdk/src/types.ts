@@ -100,6 +100,27 @@ export interface SigningField {
   value?: string;
   /** ABI type of the decoded argument at `path` (e.g. `uint256`, `address`). */
   type?: string;
+  /**
+   * For a wrapper call (1inch `permitAndCall`), the recursively-decoded inner
+   * call carried in the `action` bytes. Attached to the field whose `path`
+   * maps to the inner-call argument. When the inner selector has no descriptor
+   * or its bytes are malformed, `inner.unresolved` is `true` and the snap
+   * renders it as an honest "unknown inner call" with the raw selector.
+   */
+  inner?: DecodeResponse;
+  /**
+   * For a wrapper call (1inch `permitAndCall`), the decoded permit payload
+   * carried in the `permit` bytes. Attached to the field whose `path` maps to
+   * the permit argument.
+   */
+  permit?: PermitDecoded;
+}
+
+/** A decoded ERC-20 permit payload (mirrors `src/decode/permit.ts`). */
+export interface PermitDecoded {
+  format: 'eip2612' | 'dai' | 'permit2' | 'unknown';
+  fields: { label: string; value: string }[];
+  raw: string;
 }
 
 /** POST /decode response shape. */
@@ -111,6 +132,13 @@ export interface DecodeResponse {
   raw: { calldata?: string; typedData?: unknown };
   /** Echoed function signature, when the descriptor carried one. */
   functionSignature?: string;
+  /**
+   * Set on an `inner` sub-response when the inner call could not be resolved
+   * (no descriptor for the inner selector, or malformed inner bytes). The
+   * snap renders this as an honest "unknown inner call" carrying only the raw
+   * selector — never a silent drop.
+   */
+  unresolved?: boolean;
 }
 
 /** A verified public vouch (Tier 2) — an interaction-proven attestation. */
