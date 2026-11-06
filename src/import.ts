@@ -10,7 +10,6 @@ import {
   type EntityRecord,
 } from './normalize/normalize.js';
 import type { LoadFragment } from './normalize/includes.js';
-import { recordExceedsStringCap, MAX_STRING_BYTES } from './sync.js';
 
 /**
  * Dependency bundle for the backfill importer. A strict subset of what the
@@ -50,8 +49,6 @@ export interface ImportSummary {
   files: number;
   /** Individual EntityRecords upserted (sum across all written files). */
   records: number;
-  /** Records dropped for exceeding the 128-byte str cap. */
-  oversizedRecords: number;
   /** eip712 (chainId,contract,selector) identity collisions observed. */
   eip712Collisions: number;
 }
@@ -163,10 +160,11 @@ function runImportFromGitHub(
 
 /**
  * Apply one descriptor file to Arkiv. Hash loop-guard, normalize (includes +
- * $refs resolved), then upsert each surviving record behind the SAME two guards
- * the sync writer uses (128-byte str cap + in-file eip712 selector-identity
- * collision detection). Advances the stored hash only when at least one record
- * is written, so a file whose records were all dropped re-ingests on a fix.
+ * $refs resolved), then upsert each record behind the in-file eip712
+ * selector-identity collision guard (GUARD 2). Over-cap str fields are omitted
+ * per-field by the schema's toValues at write time, so no whole-record drop
+ * happens here. Advances the stored hash only when at least one record is
+ * written, so a file that emits no records re-ingests on a fix.
  */
 async function applyDescriptorFile(
   input: {
@@ -201,15 +199,6 @@ async function applyDescriptorFile(
   const seenEip712 = new Map<string, string>();
   let wrote = 0;
   for (const rec of records) {
-    // GUARD 1: drop oversized-field records (would make Arkiv throw at write).
-    if (recordExceedsStringCap(rec)) {
-      logWarn(
-        `[import] skipping record ${rec.chainId}/${rec.contract}/${rec.selector} ` +
-          `in ${sourcePath}: string field exceeds ${MAX_STRING_BYTES} bytes`,
-      );
-      summary.oversizedRecords += 1;
-      continue;
-    }
     // GUARD 2: detect in-file eip712 (chainId,contract,selector) collisions.
     if (rec.kind === 'eip712' && rec.eip712PrimaryType) {
       const idKey = `${rec.chainId}:${rec.contract}:${rec.selector}`;
@@ -230,7 +219,7 @@ async function applyDescriptorFile(
   }
 
   if (wrote === 0) {
-    // All records dropped by guards (or none emitted). Do not advance the hash.
+    // No records emitted. Do not advance the hash.
     summary.skipped += 1;
     return;
   }
@@ -323,7 +312,6 @@ function emptySummary(): ImportSummary {
     failed: 0,
     files: 0,
     records: 0,
-    oversizedRecords: 0,
     eip712Collisions: 0,
   };
 }
@@ -377,6 +365,3 @@ if (
     process.exit(1);
   });
 }
-
-// Re-exported for callers that want the T8-shared guards.
-export { recordExceedsStringCap, MAX_STRING_BYTES };

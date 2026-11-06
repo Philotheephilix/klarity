@@ -3,12 +3,9 @@ import {
   applyChangedFile,
   runIngestOnce,
   startIngestLoop,
-  recordExceedsStringCap,
-  MAX_STRING_BYTES,
   type SyncDeps,
 } from '../src/sync.js';
 import { descriptorHash } from '../src/hash.js';
-import type { EntityRecord } from '../src/normalize/types.js';
 
 // A minimal calldata descriptor with ONE deployment and TWO format keys, so a
 // single normalize pass yields exactly two EntityRecords.
@@ -121,34 +118,13 @@ describe('applyChangedFile — removed (brief case 2)', () => {
   });
 });
 
-describe('applyChangedFile — 128-byte string cap (guard 1)', () => {
-  it('skips a record whose functionSignature exceeds 128 bytes without throwing', () => {
-    const big = 'f'.repeat(MAX_STRING_BYTES + 1); // 129 ASCII bytes
-    const rec = {
-      chainId: 1,
-      contract: '0xabc',
-      selector: '0x12345678',
-      functionName: 'f',
-      functionSignature: big,
-      kind: 'calldata',
-      intent: '',
-      entityName: '',
-      contractName: '',
-      owner: '',
-      sourcePath: 'registry/x/a.json',
-      schemaVersion: '',
-      formatBlock: {},
-    } as EntityRecord;
-    expect(recordExceedsStringCap(rec)).toBe(true);
-
-    const okRec = { ...rec, functionSignature: 'transfer(address,uint256)' };
-    expect(recordExceedsStringCap(okRec)).toBe(false);
-  });
-
-  it('a descriptor with an oversized format key is skipped, upsert never called', async () => {
-    // A calldata format key longer than 128 bytes => functionSignature oversized.
+describe('applyChangedFile — over-cap string field is written, not dropped', () => {
+  it('upserts a record with an oversized format key (offending field omitted at write)', async () => {
+    // A calldata format key longer than 128 bytes => functionName/functionSignature
+    // oversized. Task 1's toValues omits the offending str column per-field, so the
+    // row is now UPSERTED rather than the whole record being dropped.
     const bigKey = `transfer(${'uint256,'.repeat(20)}uint256)`; // well over 128 bytes
-    expect(new TextEncoder().encode(bigKey).length).toBeGreaterThan(MAX_STRING_BYTES);
+    expect(new TextEncoder().encode(bigKey).length).toBeGreaterThan(128);
     const content = {
       $schema: 'x',
       context: {
@@ -158,18 +134,19 @@ describe('applyChangedFile — 128-byte string cap (guard 1)', () => {
       },
       display: { formats: { [bigKey]: { intent: 'Big' } } },
     };
+    const hash = descriptorHash(content);
+    const path = 'registry/x/a.json';
     const { deps, arkiv, db } = makeDeps({ content, getHashValues: [null] });
 
     const outcome = await applyChangedFile(
-      { path: 'registry/x/a.json', status: 'modified' },
+      { path, status: 'modified' },
       deps,
     );
 
-    // The only record was oversized => dropped => no write => skipped,
-    // hash NOT advanced so a future fix re-ingests.
-    expect(outcome).toBe('skipped');
-    expect(arkiv.upsert).not.toHaveBeenCalled();
-    expect(db.setHash).not.toHaveBeenCalled();
+    // The record is no longer dropped: it is upserted and the hash advances.
+    expect(outcome).toBe('written');
+    expect(arkiv.upsert).toHaveBeenCalledTimes(1);
+    expect(db.setHash).toHaveBeenCalledWith(path, hash);
   });
 });
 
