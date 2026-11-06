@@ -6,6 +6,7 @@ import {
   INDEXED_ATTRIBUTES,
   toValues,
 } from '../../src/arkiv/schema.js';
+import { descriptorHash } from '../../src/hash.js';
 import type { EntityRecord } from '../../src/normalize/types.js';
 
 const calldataRec: EntityRecord = {
@@ -59,7 +60,6 @@ describe('ClearSignDescriptor schema', () => {
       'contract',
       'selector',
       'functionName',
-      'functionSignature',
       'kind',
       'intent',
       'entityName',
@@ -85,6 +85,18 @@ describe('ClearSignDescriptor schema', () => {
     const cols = ClearSignDescriptor.columns;
     expect(cols.authorizedBy?.isOptional).toBe(true);
     expect(cols.eip712PrimaryType?.isOptional).toBe(true);
+  });
+
+  it('has non-indexed body/bodyHash and no functionSignature column', () => {
+    const cols = ClearSignDescriptor.columns;
+    expect(cols.body?.isIndexed).toBe(false);
+    expect(cols.bodyHash?.isIndexed).toBe(false);
+    expect(cols.functionSignature).toBeUndefined();
+  });
+
+  it('declares functionName optional (omitted when over the str cap)', () => {
+    const cols = ClearSignDescriptor.columns;
+    expect(cols.functionName?.isOptional).toBe(true);
   });
 });
 
@@ -151,5 +163,33 @@ describe('toValues mapping helper', () => {
 
     const c = toValues(calldataRec, { source: 'github-sync', contentHash: CONTENT_HASH });
     expect(c.eip712PrimaryType).toBeUndefined();
+  });
+
+  it('emits body (bytes) and bodyHash (str = descriptorHash of formatBlock)', () => {
+    const values = toValues(calldataRec, { source: 'github-sync', contentHash: CONTENT_HASH });
+    expect(values.body).toMatchObject({ type: 'bytes' });
+    expect(values.bodyHash).toMatchObject({
+      type: 'str',
+      value: descriptorHash(calldataRec.formatBlock),
+    });
+  });
+
+  it('omits functionName when it exceeds the 128-byte str cap, still emits body/selector', () => {
+    const big: EntityRecord = { ...calldataRec, functionName: 'a'.repeat(200) };
+    const values = toValues(big, { source: 'github-sync', contentHash: CONTENT_HASH });
+    expect(values.functionName).toBeUndefined();
+    expect(values.body).toMatchObject({ type: 'bytes' });
+    expect(values.selector).toMatchObject({ type: 'str', value: '0x474cf53d' });
+    expect(values.bodyHash).toMatchObject({
+      type: 'str',
+      value: descriptorHash(big.formatBlock),
+    });
+  });
+
+  it('omits eip712PrimaryType when it exceeds the 128-byte str cap, still emits body', () => {
+    const big: EntityRecord = { ...eip712Rec, eip712PrimaryType: 'a'.repeat(300) };
+    const values = toValues(big, { source: 'github-sync', contentHash: CONTENT_HASH });
+    expect(values.eip712PrimaryType).toBeUndefined();
+    expect(values.body).toMatchObject({ type: 'bytes' });
   });
 });

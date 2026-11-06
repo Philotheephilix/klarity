@@ -5,6 +5,19 @@ const canonicalize = canonicalizeModule as unknown as (input: unknown) => string
 const { keccak256 } = sha3;
 
 /**
+ * Canonicalize `doc` once and hash it, returning both the RFC 8785 (JCS)
+ * canonical JSON string and its keccak256 `0x…` digest. Callers that need both
+ * the canonical bytes (e.g. a body blob) and the hash use this to avoid
+ * canonicalizing twice. `descriptorHash` is defined in terms of it, so the two
+ * stay byte-identical for the same input.
+ */
+export function canonicalHash(doc: object): { canonical: string; hash: `0x${string}` } {
+  const canonical = canonicalize(doc) as string;
+  const bytes = new TextEncoder().encode(canonical);
+  return { canonical, hash: `0x${keccak256(bytes)}` };
+}
+
+/**
  * Canonical content hash for the whole system.
  *
  * Algorithm: RFC 8785 (JCS) canonical JSON string of `doc`, then keccak256 over
@@ -13,7 +26,5 @@ const { keccak256 } = sha3;
  * and the sync loop-guard.
  */
 export function descriptorHash(doc: object): `0x${string}` {
-  const canonical = canonicalize(doc) as string;
-  const bytes = new TextEncoder().encode(canonical);
-  return `0x${keccak256(bytes)}`;
+  return canonicalHash(doc).hash;
 }
