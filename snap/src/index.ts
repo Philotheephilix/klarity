@@ -199,7 +199,7 @@ export interface CaptureVouchArgs {
 /**
  * Injectable dependencies for {@link captureVouch} — the `onUserInput`
  * testability seam, mirroring the other deps seams. Production wires
- * `putPending` over `snap_manage_state`, `schedule` over
+ * `putPending` over `snap_manageState`, `schedule` over
  * `snap_scheduleBackgroundEvent`, and `notify` over a `snap_dialog` alert.
  */
 export interface CaptureVouchDeps {
@@ -257,7 +257,7 @@ export async function captureVouch(
 
 /**
  * Injectable dependencies for {@link pollPending} — the `onCronjob` testability
- * seam. Production wires the pending store over `snap_manage_state`, `getReceipt`
+ * seam. Production wires the pending store over `snap_manageState`, `getReceipt`
  * + `provider` over the `ethereum` provider, the attester + profile over the
  * chain's EAS profile, and `now` over the wall clock.
  */
@@ -303,47 +303,60 @@ export async function pollPending(deps: PollPendingDeps): Promise<void> {
       continue; // (i) already attested — never resubmit
     }
 
-    const aged = deps.now() - vouch.createdAt > MAX_PENDING_AGE_MS;
+    // Isolate each entry: a flaky RPC read (receipt fetch or the provider read
+    // inside verifyInteraction) must not abort the whole poll or escape the cron
+    // handler as an unhandled rejection. On any throw, leave this entry pending
+    // (no state change) and move on; a later scheduled fire retries it.
+    try {
+      const aged = deps.now() - vouch.createdAt > MAX_PENDING_AGE_MS;
 
-    const receipt = await waitForReceipt(
-      vouch.interactionTxHash,
-      { getReceipt: deps.getReceipt },
-      deps.waitOpts,
-    );
+      const receipt = await waitForReceipt(
+        vouch.interactionTxHash,
+        { getReceipt: deps.getReceipt },
+        deps.waitOpts,
+      );
 
-    if (!receipt.mined) {
-      // (ii) unmined: evict past the budget, otherwise leave for a later fire.
-      if (aged) {
+      if (!receipt.mined) {
+        // (ii) unmined: evict past the budget, otherwise leave for a later fire.
+        if (aged) {
+          await removePending(deps.state, vouch.interactionTxHash);
+        }
+        continue;
+      }
+
+      // (iii) mined: GATED submit. submitVouch never writes under an empty UID
+      // and never attests a reverted/forged interaction (verifyInteraction fails).
+      const result = await submitVouch(
+        {},
+        buildClaim({
+          contract: vouch.contract,
+          attester: vouch.account,
+          interactionTxHash: vouch.interactionTxHash,
+          rating: vouch.rating,
+          comment: vouch.comment,
+        }),
+        {
+          attester: deps.attester,
+          provider: deps.provider,
+          profile: deps.profile,
+        },
+      );
+
+      if (result.submitted && result.uid !== undefined) {
+        await markAttempted(deps.state, vouch.interactionTxHash, result.uid);
+        await removePending(deps.state, vouch.interactionTxHash);
+      } else if (aged) {
+        // Gated refusal or reverted/unprovable interaction: same eviction policy
+        // as unmined — keep within budget, drop once past it.
         await removePending(deps.state, vouch.interactionTxHash);
       }
+    } catch (error) {
+      // Transient failure for this entry; keep it pending and continue the loop.
+      console.error(
+        `klarity: poll failed for ${vouch.interactionTxHash}; leaving pending`,
+        error,
+      );
       continue;
-    }
-
-    // (iii) mined: GATED submit. submitVouch never writes under an empty UID and
-    // never attests a reverted/forged interaction (verifyInteraction fails).
-    const result = await submitVouch(
-      {},
-      buildClaim({
-        contract: vouch.contract,
-        attester: vouch.account,
-        interactionTxHash: vouch.interactionTxHash,
-        rating: vouch.rating,
-        comment: vouch.comment,
-      }),
-      {
-        attester: deps.attester,
-        provider: deps.provider,
-        profile: deps.profile,
-      },
-    );
-
-    if (result.submitted && result.uid !== undefined) {
-      await markAttempted(deps.state, vouch.interactionTxHash, result.uid);
-      await removePending(deps.state, vouch.interactionTxHash);
-    } else if (aged) {
-      // Gated refusal or reverted/unprovable interaction: same eviction policy
-      // as unmined — keep within budget, drop once past it.
-      await removePending(deps.state, vouch.interactionTxHash);
     }
   }
 }
@@ -399,7 +412,7 @@ export const onUserInput: OnUserInputHandler = async ({ id, event, context }) =>
 /**
  * Cronjob handler. A thin wrapper: for the scheduled {@link POLL_METHOD} event it
  * assembles the real {@link PollPendingDeps} (pending store over
- * `snap_manage_state`, the `ethereum`-backed provider for both receipt reads and
+ * `snap_manageState`, the `ethereum`-backed provider for both receipt reads and
  * `verifyInteraction`, an attester + profile per chain) and delegates to
  * {@link pollPending}. Any other method throws method-not-found.
  *

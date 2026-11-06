@@ -279,6 +279,49 @@ describe('pollPending (onCronjob core)', () => {
 
     expect(await listPending(state)).toHaveLength(0);
   });
+
+  it('(f) a throwing getReceipt on one entry does not abort the poll: it is left pending, no throw escapes, and other entries still process', async () => {
+    const profile = profileWith(REGISTERED_UID);
+    const attester = new KlarityAttester({ profile });
+    (attester as unknown as { attestPublic: () => Promise<string> }).attestPublic =
+      async () => RESULT_UID;
+
+    // Two entries: the first (flaky) throws on receipt read; the second is a
+    // normal mined+valid vouch that must still be submitted and removed.
+    const state = memoryState([
+      pendingVouch({ interactionTxHash: TX_UNMINED, createdAt: 1000 }),
+      pendingVouch({ interactionTxHash: TX_MINED, createdAt: 1000 }),
+    ]);
+
+    const throwingGetReceipt = async (hash: string) => {
+      if (hash === TX_UNMINED) {
+        throw new Error('transient RPC failure');
+      }
+      if (hash === TX_MINED) {
+        return { status: '0x1' };
+      }
+      return null;
+    };
+
+    // Must not reject (the per-entry try/catch isolates the throw).
+    await expect(
+      pollPending(
+        pollDeps({
+          state,
+          profile,
+          attester: attester as unknown as KlarityAttester,
+          provider: fakeProvider({ mined: new Set([TX_MINED]) }),
+          getReceipt: throwingGetReceipt,
+          now: () => 2000, // within budget, so the flaky one is not evicted anyway
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    const remaining = await listPending(state);
+    // The flaky entry is left pending; the valid one was submitted + removed.
+    expect(remaining.map((v) => v.interactionTxHash)).toEqual([TX_UNMINED]);
+    expect(remaining[0]?.attemptedUid).toBeUndefined();
+  });
 });
 
 describe('captureVouch (onUserInput core)', () => {
