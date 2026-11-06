@@ -26,24 +26,60 @@ attestation into the existing write path, so that:
 This is the "developer libraries for wallet integration + attestation
 workflows" leg of the ERC-7730 ecosystem vision, TypeScript first.
 
-## Attestation model: EF wallet as attester (resolved)
+## Attestation model: two tiers — EF gate + public ranking (resolved)
 
-The attester is not an arbitrary third-party reviewer — it is the **same
-EF-allowlisted wallet** that authorizes signed writes through
-`POST /descriptors`. The approval and the attestation are one act:
+Attestation is **not** EF-only; that would be centralized. Two independent tiers:
+
+### Tier 1 — EF attestation = the barrier/gate
+
+The attester is the **EF-allowlisted wallet** that authorizes signed writes
+through `POST /descriptors`. The approval and the attestation are one act:
 
 - **Auto on signed write.** After a `create`/`update` write's Arkiv upsert
   succeeds, the server creates an EF-signed EAS attestation over the
-  `descriptorHash`. One EF approval = one write + one attestation.
-- **Injected signer, never a stored key.** The EAS attestation is signed by an
-  ethers signer the server is constructed with at runtime (same provenance as
-  the existing Arkiv service wallet config). The SDK and the attest module
-  **never** read, embed, log, or request a private key — the caller/server
-  supplies a `signerOrProvider`. The compromised key pasted in chat / living in
-  `.env` is never touched.
-- **`verified` block in the HTTP response.** The single-descriptor query route
-  surfaces `{ verified: boolean, attester, attestationUID, attestedAt }` when an
-  EF EAS attestation over the stored hash exists; `verified: false` otherwise.
+  `descriptorHash` using the canonical ERC-8176 schema (`bytes32
+  descriptorHash`). One EF approval = one write + one attestation.
+- **Injected signer, never a stored key.** Signed by an ethers signer the
+  server is constructed with at runtime. The SDK/attest module **never** reads,
+  embeds, logs, or requests a private key. The compromised key in chat / `.env`
+  is never touched.
+- This is the authoritative "admitted" signal — EF is the gate.
+
+### Tier 2 — Public attestations = the ranking / reputation layer
+
+**Anyone** can attest to a descriptor, but a public vouch only counts if the
+attester proves they actually **used the contract**:
+
+- **Extended EAS schema** (distinct schema UID, same EAS deployment):
+  `bytes32 descriptorHash, address contract, uint256 chainId, bytes32 interactionTxHash`.
+- **Proof of interaction (verified, not self-claimed).** The
+  `interactionTxHash` must be a **real, confirmed** transaction on the given
+  `chainId` where `to == contract` and `from == attester`. Verification is an
+  RPC `getTransaction`/`getTransactionReceipt` check: the tx exists, is mined,
+  its `to` equals the descriptor's contract, its `from` equals the EAS
+  attestation's `attester`. A public attestation whose `interactionTxHash`
+  fails any of these is **ignored** — it never counts toward the ranking.
+- **Ranking.** Verified public vouches accumulate into a count (and the list of
+  distinct attester addresses). More demonstrated-use vouchers → higher
+  confidence. The EF gate and the public count are reported side by side.
+
+### Surface — EF gate + vouch count
+
+The single-descriptor query route and the SDK `verifyDescriptor` both report:
+
+```jsonc
+"verified": {
+  "efApproved": true,              // Tier 1: an EF EAS attestation over the hash exists
+  "efAttester": "0x…EF",           // present when efApproved
+  "efAttestationUID": "0x…",       // present when efApproved
+  "publicVouches": 3,              // Tier 2: count of VERIFIED public attestations
+  "rankedAttesters": [             // distinct verified public attesters
+    { "attester": "0x…", "interactionTxHash": "0x…", "attestationUID": "0x…" }
+  ]
+}
+```
+
+EF is the gate (`efApproved`), public vouches are the ranking.
 
 ## Why
 
@@ -135,10 +171,17 @@ sdk/
   flaky RPC must not lose an authorized write. Response gains
   `{ …, attestationUID?, attested: boolean }`.
 - **`src/routes/query.ts`** — the single-descriptor route reads `attestationUID`
-  / `attester` back and, when present, emits a `verified` block
-  `{ verified: true, attester, attestationUID, attestedAt? }`. Absent → the
-  block is `{ verified: false }`. (`attestedAt` requires an EAS read; may be
-  deferred — see open questions.)
+  / `attester` back for the EF tier and emits the `verified` block
+  (`efApproved` + the two-tier shape). **Public-tier reads come from EAS, not
+  Arkiv** — Arkiv only holds our mirrored descriptors, never arbitrary public
+  attestations. The route (when an EAS reader is configured) queries public
+  attestations over the `descriptorHash` by the public schema UID and verifies
+  each `interactionTxHash` via RPC before counting it. Because enumerating
+  attestations by schema+subject needs an EAS indexer/GraphQL, the HTTP route's
+  public tier is **best-effort and cached**: if no indexer is configured it
+  returns `publicVouches: 0` and defers to the SDK's `verifyDescriptor` for the
+  authoritative, live two-tier check. The EF tier never depends on an indexer
+  (it's a single known UID stored on the row).
 
 ## Module designs
 
@@ -177,20 +220,33 @@ new KlarityAttester({ profile: EasProfile; signerOrProvider })
   `verifyOffchainAttestationSignature`. (Enumerating all attestations for a hash
   needs an indexer/GraphQL for the full set; v1 reads a known UID or a
   caller-supplied set — noted as a limitation, not a blocker.)
-- `verifyDescriptor(descriptor, { trustedAttesters })` → hash it, gather
-  attestations, keep those where `attester ∈ trustedAttesters && revocationTime
-  === 0 && not expired`. Returns `{ verified: boolean; attestations: [...] }`.
-  **The EF wallet is the default trusted attester** — a wallet that trusts the
-  EF passes `trustedAttesters: [EF_WALLET]` and gets the same verdict the HTTP
-  `verified` block reports. The trust set stays caller-supplied so other
-  reviewers can be added.
+- `verifyDescriptor(descriptor, { trustedAttesters?, provider })` → hash it,
+  gather both tiers, return `{ efApproved, efAttester?, efAttestationUID?,
+  publicVouches, rankedAttesters }`. **EF tier:** an EF-schema attestation over
+  the hash whose attester is the EF wallet (or any `trustedAttesters` the caller
+  passes), not revoked, not expired. **Public tier:** public-schema attestations
+  over the hash, each kept only if its `interactionTxHash` verifies against
+  `provider` (`to == contract`, `from == attester`, tx mined). This is the
+  two-tier "EF gate + public ranking" core.
+- `attestPublic(descriptor, { contract, chainId, interactionTxHash }, signer)` →
+  the public-tier attest call (extended schema). The caller supplies a signer
+  for their OWN wallet; the SDK verifies the tx is theirs before/at attest time
+  is a caller concern, but `verifyDescriptor` re-verifies on read regardless.
+- `verifyInteraction(provider, { contract, attester, interactionTxHash, chainId })`
+  → the pure RPC check (tx exists, mined, `to`/`from` match). Exported for
+  unit-testing against a mocked provider.
 
 ### `config.ts`
 
-`MAINNET` = spec values (chainId 1, EAS contract + schema UID above). `SEPOLIA`
-/ `BASE_SEPOLIA` = dev profiles (EAS testnet contract + that chain's schema UID,
-looked up at implementation time from the EAS deployment registry). Each profile
-also carries an `rpcUrl` slot the caller fills.
+Two schema strings and two UIDs per profile:
+- `EF_SCHEMA_STRING = 'bytes32 descriptorHash'` (canonical ERC-8176, Tier 1).
+- `PUBLIC_SCHEMA_STRING = 'bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash'` (Tier 2).
+
+`MAINNET` = spec values (chainId 1, EAS contract + EF schema UID above; public
+schema UID registered separately). `SEPOLIA` / `BASE_SEPOLIA` = dev profiles
+(EAS testnet contract + that chain's EF & public schema UIDs). Each profile
+carries both UIDs and an `rpcUrl` slot. A UID not yet registered on a chain is
+left `''` with a comment — `attest` registers-or-requires it, never fabricated.
 
 ## Testing
 

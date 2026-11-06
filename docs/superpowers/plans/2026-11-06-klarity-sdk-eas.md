@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a typed `@klarity/sdk` (query + decode + ERC-8176 EAS attest/verify) and wire EF-wallet-signed EAS attestation into the existing signed-write path, surfacing a `verified` block on descriptor reads.
+**Goal:** Ship a typed `@klarity/sdk` (query + decode + two-tier ERC-8176 EAS attest/verify) and wire EF-wallet-signed EAS attestation into the existing signed-write path, surfacing a two-tier `verified` block (EF gate + verified public vouches) on descriptor reads.
 
-**Architecture:** New standalone package under `sdk/` (own package.json/tsconfig, adds `@ethereum-attestation-service/eas-sdk` + `ethers@^6`). Server gains an additive `attestationUID`/`attester` Arkiv column, a thin `src/eas/attester.ts`, an auto-attest hook in `POST /descriptors` (write succeeds even if attest fails), and a `verified` block on the single-descriptor query route. The attested subject is the unchanged `descriptorHash` (spec-conformant, mainnet semantics); the EAS deployment is chain-configurable (mainnet default, testnet override).
+**Architecture:** New standalone package under `sdk/` (own package.json/tsconfig, adds `@ethereum-attestation-service/eas-sdk` + `ethers@^6`). Server gains an additive `attestationUID`/`attester` Arkiv column (EF tier), a thin `src/eas/attester.ts`, an auto-attest hook in `POST /descriptors` (write succeeds even if attest fails), and a two-tier `verified` block on the single-descriptor query route. **Tier 1 (EF, the gate):** canonical ERC-8176 schema `bytes32 descriptorHash`, EF wallet attester, stored on the Arkiv row. **Tier 2 (public, the ranking):** extended schema `bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash`, anyone attests, counts only if `interactionTxHash` is a real confirmed tx with `to==contract && from==attester` (RPC-verified); read from EAS, not Arkiv. The attested subject is the unchanged `descriptorHash`; the EAS deployment is chain-configurable (mainnet default, testnet override).
 
 **Tech Stack:** TypeScript (NodeNext ESM — relative imports end `.js`), vitest, viem (existing, server), ethers v6 + eas-sdk (new, SDK + server attester), Fastify.
 
@@ -16,7 +16,9 @@
 - **No private key is ever read, printed, logged, committed, embedded, or requested.** Signing is always via an injected `signerOrProvider` / signer supplied at runtime by the caller or server config. The key pasted in chat and any `.env` key are compromised and must never be touched.
 - No new unrequested live Arkiv or EAS writes during the build. Unit tests only; no live chain writes.
 - The attested subject is `descriptorHash(descriptor)` from `src/hash.ts` — unchanged, never recomputed with a different algorithm.
-- ERC-8176 EAS schema string is exactly `bytes32 descriptorHash`. Schema UID mainnet `0xe023eef113c1670774801c34b377fdf612dd8a4d2fa92fe382e15bd91fafb5c2`, EAS mainnet contract `0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587`, chainId 1.
+- ERC-8176 EF schema string is exactly `bytes32 descriptorHash`. Schema UID mainnet `0xe023eef113c1670774801c34b377fdf612dd8a4d2fa92fe382e15bd91fafb5c2`, EAS mainnet contract `0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587`, chainId 1.
+- Public (Tier 2) schema string is exactly `bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash` — its own schema UID per EAS deployment, never fabricated (left `''` if unregistered on a chain).
+- A public vouch counts ONLY if its `interactionTxHash` verifies: tx exists, is mined, `to == descriptor.contract`, `from == attestation.attester`. An unverifiable/forged tx hash is ignored, never counted.
 - Additive schema change only: existing backfilled rows must keep working (read back `verified: false`). No migration.
 - An attestation failure must NOT fail or roll back an authorized write.
 - Run `npm test` (vitest) for the server; `npm --prefix sdk test` for the SDK. Both green before a task is done.
@@ -25,9 +27,10 @@
 
 - **Attestation failure during a write** — a thrown EAS/RPC error inside `POST /descriptors` must leave the Arkiv upsert + PR intact and report `attested: false`, never a 500 or a lost write. (Task 7 tests.)
 - **Over-cap / malformed attestationUID** — a non-`0x`+64hex UID must be rejected before it reaches the `str` column; a stored value is always a valid 66-char hex. (Task 5 tests.)
-- **Pre-attestation rows on query** — a row with no `attestationUID` returns `{ verified: false }`, not a throw or a partial block. (Task 8 tests.)
+- **Pre-attestation rows on query** — a row with no `attestationUID` returns `{ efApproved: false, publicVouches: 0, rankedAttesters: [] }`, not a throw or a partial block. (Task 8 tests.)
 - **BigInt in attestation metadata** — EAS `time`/`expirationTime`/`revocationTime` are BigInt; any value surfaced in JSON must be coerced (existing `bigintToJson` pattern), never handed raw to Fastify. (Task 8 tests.)
-- **verifyDescriptor trust filtering** — revoked (`revocationTime != 0`), expired, and untrusted-attester attestations must each be excluded; only a trusted, live attestation yields `verified: true`. (Task 6 tests.)
+- **EF verify trust filtering** — revoked (`revocationTime != 0`), expired, and untrusted-attester EF attestations must each be excluded; only a trusted, live attestation yields `efApproved: true`. (Task 6 tests.)
+- **Forged public interaction proof** — a public attestation whose `interactionTxHash` does not exist, is unmined, has `to != contract`, or `from != attester` must NOT count toward `publicVouches`. A tx from a different wallet, or to a different contract, is the key attack. (Task 6a tests.)
 
 ---
 
@@ -79,7 +82,7 @@ describe('sdk scaffold', () => {
 **Interfaces:**
 - Produces: `Descriptor`, `DescriptorWithFormatBlock`, `DecodeRequest`, `DecodeResponse`, `SigningField`, `VerifiedBlock`, `BrowseFilters` — mirroring `docs/API.md` shapes and the `verified` block added in Task 8.
 
-- [ ] **Step 1: Define the types** in `sdk/src/types.ts` from the response shapes in `docs/API.md` (single descriptor incl. `formatBlock`; `/decode` request union + response `{ signing, fields, hiddenFields, note, raw }`; `VerifiedBlock = { verified: false } | { verified: true; attester: string; attestationUID: string; attestedAt?: number }`). Export all. No logic.
+- [ ] **Step 1: Define the types** in `sdk/src/types.ts` from the response shapes in `docs/API.md` (single descriptor incl. `formatBlock`; `/decode` request union + response `{ signing, fields, hiddenFields, note, raw }`; two-tier `VerifiedBlock = { efApproved: boolean; efAttester?: string; efAttestationUID?: string; publicVouches: number; rankedAttesters: PublicVouch[] }` where `PublicVouch = { attester: string; interactionTxHash: string; attestationUID: string }`). Export all. No logic.
 
 - [ ] **Step 2: Typecheck** — `npm --prefix sdk run build` → no errors.
 
@@ -117,17 +120,17 @@ describe('sdk scaffold', () => {
 - Test: `sdk/test/config.test.ts`
 
 **Interfaces:**
-- Produces: `interface EasProfile { chainId: number; easContract: string; schemaUID: string; registryContract?: string }`; const `MAINNET` (spec values), `SEPOLIA`, `BASE_SEPOLIA` (dev values, each with that deployment's own EAS + schema UID). `const SCHEMA_STRING = 'bytes32 descriptorHash'`.
+- Produces: `interface EasProfile { chainId: number; easContract: string; efSchemaUID: string; publicSchemaUID: string; rpcUrl?: string }`; const `MAINNET` (spec values), `SEPOLIA`, `BASE_SEPOLIA`. `const EF_SCHEMA_STRING = 'bytes32 descriptorHash'`; `const PUBLIC_SCHEMA_STRING = 'bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash'`.
 
-- [ ] **Step 1: Write `sdk/test/config.test.ts`** — assert `MAINNET.chainId === 1`, `MAINNET.easContract === '0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587'`, `MAINNET.schemaUID === '0xe023eef113c1670774801c34b377fdf612dd8a4d2fa92fe382e15bd91fafb5c2'`, `SCHEMA_STRING === 'bytes32 descriptorHash'`, and that `SEPOLIA`/`BASE_SEPOLIA` have distinct non-empty EAS contracts.
+- [ ] **Step 1: Write `sdk/test/config.test.ts`** — assert `MAINNET.chainId === 1`, `MAINNET.easContract === '0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587'`, `MAINNET.efSchemaUID === '0xe023eef113c1670774801c34b377fdf612dd8a4d2fa92fe382e15bd91fafb5c2'`, `EF_SCHEMA_STRING === 'bytes32 descriptorHash'`, `PUBLIC_SCHEMA_STRING` exactly the 4-field string above, and that `SEPOLIA`/`BASE_SEPOLIA` have distinct non-empty EAS contracts.
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Install deps + implement `config.ts`.** `npm --prefix sdk install @ethereum-attestation-service/eas-sdk@^2.10.0 ethers@^6`. Fill profiles; testnet EAS contract + schema UID values looked up from the EAS deployments doc (if a testnet schema UID is not yet registered, leave it `''` with a comment that `attest` will register-or-require it — do NOT fabricate a UID).
+- [ ] **Step 3: Install deps + implement `config.ts`.** `npm --prefix sdk install @ethereum-attestation-service/eas-sdk@^2.10.0 ethers@^6`. Fill profiles; testnet EAS contract values from the EAS deployments doc. Schema UIDs not yet registered on a chain → `''` with a comment (never fabricate a UID).
 
 - [ ] **Step 4: Run, verify pass.**
 
-- [ ] **Step 5: Commit** — `git add sdk/ && git commit -m "feat(sdk): EAS chain profiles + schema string"`.
+- [ ] **Step 5: Commit** — `git add sdk/ && git commit -m "feat(sdk): EAS chain profiles + EF/public schema strings"`.
 
 ---
 
@@ -154,25 +157,47 @@ describe('sdk scaffold', () => {
 
 ---
 
-## Task 6: SDK `attest.ts` — ERC-8176 attest / read / verify
+## Task 6: SDK `attest.ts` — EF tier (ERC-8176 attest / read / verify)
 
 **Files:**
 - Create: `sdk/src/attest.ts`
 - Test: `sdk/test/attest.test.ts`
 
 **Interfaces:**
-- Consumes: `EasProfile`, `SCHEMA_STRING` from `config.ts`; `descriptorHash` from `hash.ts`; `SchemaEncoder` from eas-sdk.
-- Produces: `class KlarityAttester({ profile, signerOrProvider })` with `attestDescriptor(descriptor, opts?)` → UID (or offchain blob), `getAttestationsFor(descriptorHash, uids?)`, `verifyDescriptor(descriptor, { trustedAttesters })` → `{ verified, attestations }`. Also pure helpers `encodeDescriptorHash(hash)` / `decodeAttestationData(data)` for unit testing without a chain.
+- Consumes: `EasProfile`, `EF_SCHEMA_STRING` from `config.ts`; `descriptorHash` from `hash.ts`; `SchemaEncoder`, `EAS` from eas-sdk.
+- Produces: `class KlarityAttester({ profile, signerOrProvider })` with `attestDescriptor(descriptor, opts?)` → UID (EF tier), `getEfAttestation(uid)`, and `verifyEf(descriptor, { trustedAttesters })` → `{ efApproved, efAttester?, efAttestationUID? }`. Pure helpers `encodeEfData(hash)` / `decodeEfData(data)` for chain-free unit tests.
 
-- [ ] **Step 1: Write `sdk/test/attest.test.ts`** — no live chain. Assert: `encodeDescriptorHash(h)` then `decodeAttestationData(...)` round-trips to `h` (SchemaEncoder over `bytes32 descriptorHash`); `verifyDescriptor` trust-filter over FIXTURE attestations — a trusted + live attestation ⇒ `verified: true`; a revoked (`revocationTime != 0n`), an expired, and an untrusted-attester attestation each ⇒ excluded / `verified: false`. Mock/stub the chain-reading part (inject a fake `getAttestationsFor`). At least 5 assertions.
+- [ ] **Step 1: Write `sdk/test/attest.test.ts`** (EF tier) — no live chain. Assert: `encodeEfData(h)` → `decodeEfData(...)` round-trips to `h` (SchemaEncoder over `bytes32 descriptorHash`); `verifyEf` over FIXTURE attestations (injected fake reader) — trusted + live ⇒ `efApproved: true`; revoked (`revocationTime != 0n`), expired, untrusted-attester each ⇒ `efApproved: false`. At least 5 assertions.
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement `attest.ts`** — `encodeDescriptorHash`/`decodeAttestationData` via `SchemaEncoder`. `attestDescriptor`: compute `descriptorHash`, encode, `new EAS(profile.easContract).connect(signerOrProvider)`, `eas.attest({ schema: profile.schemaUID, data: { recipient: ZERO, expirationTime, revocable, data } })` → UID; offchain branch via `signOffchainAttestation`. `getAttestationsFor`: read a supplied UID set via `eas.getAttestation`. `verifyDescriptor`: hash → gather → filter `attester ∈ trustedAttesters && revocationTime === 0n && (expirationTime === 0n || expirationTime > now)`. Export from `index.ts`.
+- [ ] **Step 3: Implement the EF tier in `attest.ts`** — `encodeEfData`/`decodeEfData` via `SchemaEncoder`; `attestDescriptor`: `descriptorHash` → encode → `new EAS(profile.easContract).connect(signerOrProvider)` → `eas.attest({ schema: profile.efSchemaUID, data: { recipient: ZERO, expirationTime: 0n, revocable: true, data } })` → UID; `verifyEf`: gather EF-schema attestations for the hash, filter `attester ∈ trustedAttesters && revocationTime === 0n && (expirationTime === 0n || expirationTime > now)`. Export from `index.ts`.
 
 - [ ] **Step 4: Run, verify pass.**
 
-- [ ] **Step 5: Commit** — `git add sdk/ && git commit -m "feat(sdk): ERC-8176 EAS attest/read/verify"`.
+- [ ] **Step 5: Commit** — `git add sdk/ && git commit -m "feat(sdk): EF-tier ERC-8176 attest/read/verify"`.
+
+---
+
+## Task 6a: SDK public tier — interaction-proven vouches
+
+**Files:**
+- Modify: `sdk/src/attest.ts` (public-tier methods)
+- Test: `sdk/test/public-attest.test.ts`
+
+**Interfaces:**
+- Consumes: `PUBLIC_SCHEMA_STRING`, `profile.publicSchemaUID`; an ethers `provider` for tx verification.
+- Produces, on `KlarityAttester`: `attestPublic(descriptor, { contract, chainId, interactionTxHash }, signer)` → UID; `verifyInteraction(provider, { contract, attester, interactionTxHash })` → `boolean` (pure RPC check); `verifyPublic(descriptor, { provider })` → `{ publicVouches: number; rankedAttesters: PublicVouch[] }`; and a combined `verifyDescriptor(descriptor, { trustedAttesters, provider })` → full two-tier `VerifiedBlock` (calls `verifyEf` + `verifyPublic`).
+
+- [ ] **Step 1: Write `sdk/test/public-attest.test.ts`** — mock the ethers `provider.getTransaction`/`getTransactionReceipt`. Assert `verifyInteraction` returns: true for a mined tx with `to == contract && from == attester`; **false** for (a) tx not found, (b) `to != contract`, (c) `from != attester` (the forgery — tx from a different wallet), (d) unmined (no receipt / 0 confirmations). Then `verifyPublic` over fixtures: only interaction-verified attestations count toward `publicVouches`; `rankedAttesters` lists distinct verified attesters. `encodePublicData`/`decodePublicData` round-trip the 4-field schema. At least 7 assertions (each forgery case named).
+
+- [ ] **Step 2: Run, verify fail.**
+
+- [ ] **Step 3: Implement the public tier** — `encodePublicData`/`decodePublicData` via `SchemaEncoder` over `PUBLIC_SCHEMA_STRING`; `attestPublic` → `eas.attest({ schema: profile.publicSchemaUID, data })`; `verifyInteraction`: `provider.getTransaction(txHash)` + receipt, check mined, `tx.to?.toLowerCase() === contract.toLowerCase()`, `tx.from.toLowerCase() === attester.toLowerCase()`; `verifyPublic`: gather public-schema attestations for the hash, decode each, keep those whose `interactionTxHash` passes `verifyInteraction` with the attestation's `attester`, dedupe by attester; `verifyDescriptor`: merge both tiers into `VerifiedBlock`.
+
+- [ ] **Step 4: Run, verify pass.**
+
+- [ ] **Step 5: Commit** — `git add sdk/ && git commit -m "feat(sdk): public-tier interaction-proven vouches + two-tier verifyDescriptor"`.
 
 ---
 
@@ -210,13 +235,13 @@ describe('sdk scaffold', () => {
 
 **Interfaces:**
 - Consumes: `attestationUID`/`attester` read back via `BASE_SELECT` (Task 5).
-- Produces: single-descriptor response gains `verified: VerifiedBlock`. `attestedAt` is omitted in v1 (store-at-write decision: no live EAS read on GET; SDK `verifyDescriptor` is the authoritative live check — noted inline).
+- Produces: single-descriptor response gains `verified: VerifiedBlock` (two-tier shape from Task 2). The EF tier comes from the stored row columns; the public tier is best-effort on the HTTP route — `publicVouches: 0, rankedAttesters: []` when no EAS indexer is configured (the SDK's `verifyDescriptor` is the authoritative live public check). No live EAS read on GET for the EF tier; `attestedAt` omitted in v1.
 
-- [ ] **Step 1: Write failing tests** in `test/server.test.ts` — a row WITH `attestationUID`+`attester` ⇒ `verified: { verified: true, attester, attestationUID }`; a row WITHOUT ⇒ `verified: { verified: false }`. Any BigInt in surfaced metadata coerced via `bigintToJson` (no raw BigInt reaches the response). Assert each.
+- [ ] **Step 1: Write failing tests** in `test/server.test.ts` — a row WITH `attestationUID`+`attester` ⇒ `verified: { efApproved: true, efAttester, efAttestationUID, publicVouches: 0, rankedAttesters: [] }`; a row WITHOUT ⇒ `verified: { efApproved: false, publicVouches: 0, rankedAttesters: [] }`. Any BigInt in surfaced metadata coerced via `bigintToJson` (no raw BigInt reaches the response). Assert each.
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement** — in the single-descriptor handler, after unwrapping, read `attestationUID`/`attester` (envelope `.value`); build the `verified` block; attach to the response object. Document in `docs/API.md`.
+- [ ] **Step 3: Implement** — in the single-descriptor handler, after unwrapping, read `attestationUID`/`attester` (envelope `.value`); build the two-tier `verified` block (EF tier from the row; public tier defaults to `publicVouches: 0, rankedAttesters: []` absent an indexer); attach to the response object. Document in `docs/API.md`.
 
 - [ ] **Step 4: Run, verify pass** — `npm test`.
 
@@ -240,7 +265,8 @@ describe('sdk scaffold', () => {
 
 ## Self-Review notes
 
-- **Spec coverage:** client (T3), decode (T3 via `decode`), EAS attest/read/verify (T6), EF-as-attester auto-write (T7), `verified` block (T8), chain-configurable profiles (T4), schema column (T5), README (T9). All design sections map to a task.
-- **Type consistency:** `VerifiedBlock` defined in T2, produced in T8, consumed by SDK types; `EfAttester` defined in T7; `EasProfile`/`SCHEMA_STRING` in T4 consumed in T6/T7; `attestationUID`/`attester` column (T5) read in T8.
-- **Review Focus:** attestation-failure-preserves-write (T7b), malformed UID (T5), pre-attestation row (T8), BigInt coercion (T8), verify trust filter (T6) — each has an owning test.
+- **Spec coverage:** client (T3), decode (T3 via `decode`), EF-tier EAS attest/read/verify (T6), public-tier interaction-proven vouches + two-tier `verifyDescriptor` (T6a), EF-as-attester auto-write (T7), two-tier `verified` block (T8), chain-configurable profiles + both schema strings (T4), schema column (T5), README (T9). All design sections map to a task.
+- **Type consistency:** two-tier `VerifiedBlock`/`PublicVouch` defined in T2, produced in T8, returned by `verifyDescriptor` in T6a; `EfAttester` defined in T7; `EasProfile`/`EF_SCHEMA_STRING`/`PUBLIC_SCHEMA_STRING`/`efSchemaUID`/`publicSchemaUID` in T4 consumed in T6/T6a/T7; `attestationUID`/`attester` column (T5) read in T8. `verifyEf` (T6) + `verifyPublic`/`verifyInteraction` (T6a) names are consistent across both tasks.
+- **Review Focus:** attestation-failure-preserves-write (T7b), malformed UID (T5), pre-attestation row returns zeroed two-tier block (T8), BigInt coercion (T8), EF verify trust filter (T6), forged public interaction proof — wrong `from`/`to`/unmined/missing tx each ignored (T6a) — each has an owning test.
 - **Open mechanical choice:** T1 Step 3 resolves the SDK↔core hash sharing (workspace export vs. source path) at build time, picking whichever compiles cleanly; noted in commit.
+- **Two-tier integrity:** no task collapses attestation to EF-only; the public ranking tier (T6a) and its forgery guard are first-class, per the trust-model decision.
