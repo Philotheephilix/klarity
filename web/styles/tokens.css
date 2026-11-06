@@ -40,6 +40,12 @@
 
   --nav-border: rgba(255, 255, 255, 0.14);
 
+  /* .ctx-chip (catalog) reads --fill-on (text) and --fill-slab (base) from a
+   * theme scope. On dark these resolve to white ink on a subtle white wash so
+   * the read-only badge stays on-theme. */
+  --fill-on: #fff;
+  --fill-slab: #000;
+
   --font-head: 'Google Sans', 'Inter Head', var(--font-ui);
   --font-ui: 'Inter', 'Maison Neue', 'Instrument Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-code: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
