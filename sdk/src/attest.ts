@@ -6,7 +6,7 @@
 // source is injected via `readAttestations`.
 //
 // Tier 2 (public interaction-proven vouches): an attestation under the extended
-// 4-field schema. A vouch counts ONLY if its `interactionTxHash` resolves to a
+// 6-field schema. A vouch counts ONLY if its `interactionTxHash` resolves to a
 // mined tx with `to == contract` and `from == attester` — so a vouch cannot be
 // forged by pointing at someone else's transaction. The same `readAttestations`
 // injection serves both tiers.
@@ -73,6 +73,8 @@ export interface InteractionClaim {
   contract: string;
   attester: string;
   interactionTxHash: string;
+  rating: number;
+  comment: string;
 }
 
 export interface VerifyPublicOptions {
@@ -216,7 +218,7 @@ export class KlarityAttester {
   // ─── Tier 2: public interaction-proven vouches ───────────────────────────
 
   /**
-   * Attest a public vouch under the extended 4-field schema. Requires a signer
+   * Attest a public vouch under the extended 6-field schema. Requires a signer
    * and a registered `publicSchemaUID`. Returns the attestation UID.
    */
   async attestPublic(descriptor: object, claim: InteractionClaim): Promise<string> {
@@ -230,8 +232,8 @@ export class KlarityAttester {
       contract: claim.contract,
       chainId: this.profile.chainId,
       interactionTxHash: claim.interactionTxHash,
-      rating: 0,
-      comment: '',
+      rating: claim.rating,
+      comment: claim.comment,
     });
     const tx = await this.eas().attest({
       schema: this.profile.publicSchemaUID,
@@ -316,6 +318,8 @@ export class KlarityAttester {
           contract: decoded.contract,
           attester: a.attester,
           interactionTxHash: decoded.interactionTxHash,
+          rating: decoded.rating,
+          comment: decoded.comment,
         });
         if (!ok) continue;
         const key = a.attester.toLowerCase();
@@ -325,6 +329,8 @@ export class KlarityAttester {
           attester: a.attester,
           interactionTxHash: decoded.interactionTxHash,
           attestationUID: a.uid,
+          rating: decoded.rating,
+          comment: decoded.comment,
         });
       } catch {
         // Undecodable or otherwise-malformed vouch: skip, never count, never throw.

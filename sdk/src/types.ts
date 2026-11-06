@@ -106,6 +106,8 @@ export interface PublicVouch {
   attester: string;
   interactionTxHash: string;
   attestationUID: string;
+  rating: number;
+  comment: string;
 }
 
 /** Two-tier verified block: EF gate (Tier 1) + verified public vouches (Tier 2). */

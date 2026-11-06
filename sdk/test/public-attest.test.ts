@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { SchemaEncoder } from '@ethereum-attestation-service/eas-sdk';
 import type { Attestation } from '@ethereum-attestation-service/eas-sdk';
 import {
   KlarityAttester,
@@ -184,6 +185,35 @@ describe('KlarityAttester.verifyPublic + verifyDescriptor', () => {
     expect(r.rankedAttesters).toHaveLength(1);
     expect(r.rankedAttesters[0].attester.toLowerCase()).toBe(ATTESTER_A);
     expect(r.rankedAttesters[0].interactionTxHash.toLowerCase()).toBe(TX_OK.toLowerCase());
+    // The ranked attester carries the rating/comment decoded from its attestation
+    // data (pubData encodes rating 5 / 'did exactly what it said').
+    expect(r.rankedAttesters[0].rating).toBe(5);
+    expect(r.rankedAttesters[0].comment).toBe('did exactly what it said');
+  });
+
+  it('skips a vouch whose data is the OLD 4-field blob (decode throws under the 6-field encoder → not counted)', async () => {
+    // Forward-safety: an attestation written under the pre-Task-1 4-field schema
+    // (descriptorHash, contract, chainId, interactionTxHash) decodes to a buffer
+    // too short for the 6-field encoder, so decodePublicData throws. The existing
+    // try/catch must skip it — never count it, never mis-count it — while a valid
+    // 6-field vouch from A still comes through.
+    const oldFourFieldEncoder = new SchemaEncoder(
+      'bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash',
+    );
+    const oldBlob = oldFourFieldEncoder.encodeData([
+      { name: 'descriptorHash', type: 'bytes32', value: descriptorHash(DESCRIPTOR) },
+      { name: 'contract', type: 'address', value: CONTRACT },
+      { name: 'chainId', type: 'uint256', value: 1n },
+      { name: 'interactionTxHash', type: 'bytes32', value: TX_OK },
+    ]);
+    const a = attesterWith([
+      publicAttestation({ attester: ATTESTER_B, data: oldBlob, uid: '0x' + 'aa'.repeat(32) }),
+      publicAttestation({ attester: ATTESTER_A, data: pubData(ATTESTER_A, TX_OK), uid: '0x' + 'ab'.repeat(32) }),
+    ]);
+    const r = await a.verifyPublic(DESCRIPTOR, { provider });
+    expect(r.publicVouches).toBe(1); // old 4-field blob skipped; only A's 6-field vouch counts
+    expect(r.rankedAttesters).toHaveLength(1);
+    expect(r.rankedAttesters[0].attester.toLowerCase()).toBe(ATTESTER_A);
   });
 
   it('excludes a vouch whose encoded descriptorHash does not match the descriptor (wrong-subject forgery)', async () => {
