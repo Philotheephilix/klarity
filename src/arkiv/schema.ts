@@ -43,6 +43,14 @@ export const ClearSignDescriptor = defineSchema(SCHEMA_NAMESPACE, {
   schemaVersion: str(),
 });
 
+/**
+ * Conservative upper bound on a body's canonical UTF-8 byte length. The real
+ * largest registry body is ~6.4 KB, so this never fires in practice; it is a
+ * fail-loud belt-and-suspenders guard with headroom below the measured
+ * ~129.5 KB Rabdi entity ceiling (well under the SDK's 131072-byte bytes cap).
+ */
+export const MAX_BODY_BYTES = 120000;
+
 /** Attribute names that are indexed (i.e. usable in `.where(...)` filters). */
 export const INDEXED_ATTRIBUTES = [
   'chainId',
@@ -94,6 +102,17 @@ export function toValues(
   // Canonicalize the format block once: its bytes become the body blob and the
   // same canonical form is hashed into bodyHash.
   const { canonical, hash } = canonicalHash(rec.formatBlock);
+
+  // Pre-flight size guard: fail loud, naming the descriptor, before the SDK's
+  // bytes() cap (131072) or the real-chain ~129.5 KB entity ceiling is hit.
+  // Reuses the canonical string already computed for body + bodyHash.
+  const bodyBytes = Buffer.byteLength(canonical, 'utf8');
+  if (bodyBytes > MAX_BODY_BYTES) {
+    throw new Error(
+      `descriptor body too large: ${bodyBytes} bytes exceeds MAX_BODY_BYTES ` +
+        `(${MAX_BODY_BYTES}) for ${rec.chainId}/${rec.contract}/${rec.selector}`,
+    );
+  }
 
   const values: Record<string, ArkivValue> = {
     chainId: u64(BigInt(rec.chainId)),
