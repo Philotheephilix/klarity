@@ -11,14 +11,16 @@ import type { JSXElement } from '@metamask/snaps-sdk/jsx';
 import { Box, Text } from '@metamask/snaps-sdk/jsx';
 import {
   KlarityAttester,
+  type DecodeResponse,
   type EasProfile,
   type InteractionProvider,
 } from '@klarity/sdk';
 
 import { parseChainId, parseTx } from './parse.js';
-import { fetchDecode, type FetchDecodeDeps } from './decode.js';
+import { fetchDecodeOutcome, type FetchDecodeDeps } from './decode.js';
 import { fetchVerified, type FetchVerifiedDeps } from './verified.js';
-import { renderInsight } from './render.js';
+import { renderInsight, type TokenMetaMap } from './render.js';
+import { resolveToken, type TokenMeta } from './token.js';
 import { renderHome } from './home.js';
 import { profileForChain } from './config.js';
 import { buildClaim, submitVouch } from './ranking.js';
@@ -49,6 +51,69 @@ type OnTransactionArgs = Parameters<OnTransactionHandler>[0];
 export interface BuildInsightDeps {
   decodeDeps?: FetchDecodeDeps;
   verifiedDeps?: FetchVerifiedDeps;
+  /**
+   * Resolver for ERC-20 token metadata, injected for tests. Production binds it
+   * to the Snaps `ethereum` provider via {@link resolveToken}. Omitting it (e.g.
+   * in a test with no provider) yields an empty map and the panel shows raw
+   * integer amounts rather than formatted ones.
+   */
+  resolveToken?: (address: string) => Promise<TokenMeta | null>;
+}
+
+/** The literal zero address — ERC-7730's native-asset sentinel, not an ERC-20. */
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/u;
+
+/**
+ * Collect every concrete ERC-20 token address referenced by an amount field,
+ * walking one level of nested `inner` call too. Only `params.token` literals are
+ * collected; `params.tokenPath` indirections and the zero address are skipped
+ * (unresolved references, not ERC-20s). Addresses are lowercased.
+ */
+function collectTokenAddresses(decode: DecodeResponse): Set<string> {
+  const out = new Set<string>();
+  const scan = (fields: DecodeResponse['fields']): void => {
+    for (const field of fields) {
+      const token = field.params?.token;
+      if (
+        typeof token === 'string' &&
+        ADDRESS_RE.test(token) &&
+        token.toLowerCase() !== ZERO_ADDRESS
+      ) {
+        out.add(token.toLowerCase());
+      }
+      if (field.inner) {
+        scan(field.inner.fields);
+      }
+    }
+  };
+  scan(decode.fields);
+  scan(decode.hiddenFields);
+  return out;
+}
+
+/**
+ * Pre-resolve a token-metadata map for every token address an amount field
+ * references, so the synchronous `renderInsight` can format amounts without a
+ * live provider. Resolution is per-address and non-throwing; a failed resolve is
+ * stored as `null`, which the renderer shows as `"<raw> (raw)"`.
+ */
+async function resolveTokenMeta(
+  decode: DecodeResponse,
+  resolve: (address: string) => Promise<TokenMeta | null>,
+): Promise<TokenMetaMap> {
+  const addresses = [...collectTokenAddresses(decode)];
+  const map: TokenMetaMap = new Map();
+  await Promise.all(
+    addresses.map(async (address) => {
+      try {
+        map.set(address, await resolve(address));
+      } catch {
+        map.set(address, null);
+      }
+    }),
+  );
+  return map;
 }
 
 /**
@@ -93,10 +158,15 @@ export async function buildInsight(
       return { content: asInsightContent(renderInsight(null, null)) };
     }
 
-    const decode = await fetchDecode(
+    const decodeOutcome = await fetchDecodeOutcome(
       { chainId, contract, calldata },
       deps.decodeDeps,
     );
+    const decode = decodeOutcome.ok ? decodeOutcome.decode : null;
+    const decodeError =
+      decodeOutcome.ok || decodeOutcome.reason !== 'error'
+        ? null
+        : decodeOutcome.message;
 
     const verified =
       selector === null
@@ -108,9 +178,14 @@ export async function buildInsight(
         ? { chainId, contract, selector }
         : undefined;
 
+    const tokenMeta =
+      decode !== null && deps.resolveToken !== undefined
+        ? await resolveTokenMeta(decode, deps.resolveToken)
+        : new Map<string, TokenMeta | null>();
+
     return {
       content: asInsightContent(
-        renderInsight(decode, verified, interactionContext),
+        renderInsight(decode, verified, interactionContext, decodeError, tokenMeta),
       ),
     };
   } catch {
@@ -122,10 +197,13 @@ export async function buildInsight(
  * Transaction insight handler.
  *
  * A thin wrapper over {@link buildInsight} that calls it with real adapter
- * dependencies (default clients built against the configured Klarity server).
+ * dependencies (default clients built against the configured Klarity server),
+ * binding token-metadata resolution to the Snaps `ethereum` provider.
  */
 export const onTransaction: OnTransactionHandler = async (args) =>
-  buildInsight(args);
+  buildInsight(args, {
+    resolveToken: async (address) => resolveToken(ethereum, address),
+  });
 
 /**
  * Wrap the Snaps global `ethereum` (EIP-1193) as the minimal

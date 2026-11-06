@@ -5,6 +5,7 @@ import type {
   VerifiedBlock,
 } from '@klarity/sdk';
 import { renderInsight } from '../src/render.js';
+import type { TokenMeta } from '../src/token.js';
 
 /**
  * Flatten a rendered Snaps JSX element into a single string of all the text it
@@ -171,6 +172,20 @@ describe('renderInsight', () => {
     expect(out).toContain('No Klarity clear-signing for this transaction.');
   });
 
+  it('shows a decode-error diagnostic when decode failed with an error', () => {
+    const out = renderToString(
+      renderInsight(null, null, undefined, 'Failed to fetch'),
+    );
+    expect(out).toContain('No Klarity clear-signing for this transaction.');
+    expect(out).toContain('decode error: ');
+    expect(out).toContain('Failed to fetch');
+  });
+
+  it('does NOT show a diagnostic on a genuine no-descriptor (null error)', () => {
+    const out = renderToString(renderInsight(null, null, undefined, null));
+    expect(out).not.toContain('decode error:');
+  });
+
   it('contains no emoji in any rendered string', () => {
     const strings = [
       renderToString(renderInsight(makeDecode(), efVerified)),
@@ -204,5 +219,196 @@ describe('renderInsight', () => {
     const el = renderInsight(makeDecode(), efVerified);
     expect(el).toHaveProperty('type');
     expect(el).toHaveProperty('props');
+  });
+
+  it('still shows "-" for a field with no decoded value', () => {
+    // visibleFields carry no `value` -> honest dash, not a fabricated value.
+    const out = renderToString(renderInsight(makeDecode(), null));
+    expect(out).toContain('-');
+  });
+
+  const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+
+  it('formats an integer amount with a known token as "1.0 USDC"', () => {
+    const decode = makeDecode({
+      fields: [
+        {
+          label: 'Amount to supply',
+          path: 'amount',
+          format: 'tokenAmount',
+          hidden: false,
+          params: { token: USDC },
+          value: '1000000',
+          type: 'uint256',
+        },
+      ],
+    });
+    const tokenMeta = new Map<string, TokenMeta | null>([
+      [USDC.toLowerCase(), { decimals: 6, symbol: 'USDC' }],
+    ]);
+    const out = renderToString(
+      renderInsight(decode, null, undefined, null, tokenMeta),
+    );
+    expect(out).toContain('1.0 USDC');
+  });
+
+  it('renders "<raw> (raw)" when token metadata could not be resolved', () => {
+    const decode = makeDecode({
+      fields: [
+        {
+          label: 'Amount to supply',
+          path: 'amount',
+          format: 'tokenAmount',
+          hidden: false,
+          params: { token: USDC },
+          value: '1000000',
+          type: 'uint256',
+        },
+      ],
+    });
+    const tokenMeta = new Map<string, TokenMeta | null>([
+      [USDC.toLowerCase(), null],
+    ]);
+    const out = renderToString(
+      renderInsight(decode, null, undefined, null, tokenMeta),
+    );
+    expect(out).toContain('1000000 (raw)');
+  });
+
+  it('renders an integer with no token address as its plain base-10 value', () => {
+    const decode = makeDecode({
+      fields: [
+        {
+          label: 'Referral code',
+          path: 'referralCode',
+          hidden: false,
+          value: '7',
+          type: 'uint16',
+        },
+      ],
+    });
+    const out = renderToString(renderInsight(decode, null));
+    expect(out).toContain('7');
+    expect(out).not.toContain('(raw)');
+  });
+
+  it('renders an address value as-is', () => {
+    const addr = '0x1111111111111111111111111111111111111111';
+    const decode = makeDecode({
+      fields: [
+        { label: 'Recipient', path: 'to', hidden: false, value: addr, type: 'address' },
+      ],
+    });
+    const out = renderToString(renderInsight(decode, null));
+    expect(out).toContain(addr);
+  });
+
+  it('renders a nested inner call with its decoded fields in a Box', () => {
+    const inner: DecodeResponse = {
+      signing: {
+        chainId: 1,
+        contract: '0xinner',
+        selector: '0xa9059cbb',
+        kind: 'calldata',
+        decodedFrom: 'abi',
+        interpolatedIntent: null,
+        functionSignature: 'transfer(address to, uint256 amount)',
+        summary: 'transfer(address,uint256)',
+      },
+      fields: [
+        {
+          label: 'Inner recipient',
+          path: 'to',
+          hidden: false,
+          value: '0x2222222222222222222222222222222222222222',
+          type: 'address',
+        },
+      ],
+      hiddenFields: [],
+      note: 'inner note',
+      raw: { calldata: '0xa9059cbb0000' },
+    };
+    const decode = makeDecode({
+      fields: [
+        { label: 'Action', path: 'action', hidden: false, value: '0xdead', type: 'bytes', inner },
+      ],
+    });
+    const out = renderToString(renderInsight(decode, null));
+    expect(out).toContain('Inner recipient');
+    expect(out).toContain('0x2222222222222222222222222222222222222222');
+  });
+
+  it('renders an unresolved inner call honestly with the raw selector', () => {
+    const inner: DecodeResponse = {
+      signing: {
+        chainId: 1,
+        contract: '0xinner',
+        selector: '0xdeadbeef',
+        kind: 'calldata',
+        decodedFrom: 'abi',
+        interpolatedIntent: null,
+        summary: 'Unknown inner call',
+      },
+      fields: [],
+      hiddenFields: [],
+      note: 'no descriptor',
+      raw: { calldata: '0xdeadbeef00001111' },
+      unresolved: true,
+    };
+    const decode = makeDecode({
+      fields: [
+        { label: 'Action', path: 'action', hidden: false, value: '0xdead', type: 'bytes', inner },
+      ],
+    });
+    const out = renderToString(renderInsight(decode, null));
+    expect(out).toContain('Unknown inner call');
+    expect(out).toContain('0xdeadbeef');
+  });
+
+  it('renders a permit block with its fields', () => {
+    const decode = makeDecode({
+      fields: [
+        {
+          label: 'Permit',
+          path: 'permit',
+          hidden: false,
+          value: '0xabc',
+          type: 'bytes',
+          permit: {
+            format: 'eip2612',
+            fields: [
+              { label: 'Token', value: USDC },
+              { label: 'Owner', value: '0x3333333333333333333333333333333333333333' },
+              { label: 'Spender', value: '0x4444444444444444444444444444444444444444' },
+              { label: 'Value', value: '1000000' },
+              { label: 'Deadline', value: '1699999999' },
+            ],
+            raw: '0xabc',
+          },
+        },
+      ],
+    });
+    const out = renderToString(renderInsight(decode, null));
+    expect(out).toContain('Permit');
+    expect(out).toContain('Token');
+    expect(out).toContain('Owner');
+    expect(out).toContain('Spender');
+  });
+
+  it('labels an unrecognized permit honestly', () => {
+    const decode = makeDecode({
+      fields: [
+        {
+          label: 'Permit',
+          path: 'permit',
+          hidden: false,
+          value: '0xabcd',
+          type: 'bytes',
+          permit: { format: 'unknown', fields: [], raw: '0xabcd' },
+        },
+      ],
+    });
+    const out = renderToString(renderInsight(decode, null));
+    expect(out).toContain('Permit (unrecognized)');
   });
 });

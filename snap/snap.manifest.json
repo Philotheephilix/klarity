@@ -7,7 +7,7 @@
     "url": "https://github.com/klarity/klarity.git"
   },
   "source": {
-    "shasum": "ghtCFPigEY0spIiEP5cja9b7GzapF7T4Cf0u+Jd7Fz4=",
+    "shasum": "L6IQcLAc2t1am5Fj73nIsJxzdUcR34F1pjI0lsM4/W8=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",
@@ -28,7 +28,7 @@
     },
     "endowment:page-home": {},
     "snap_dialog": {},
-    "snap_manage_state": {}
+    "snap_manageState": {}
   },
   "platformVersion": "10.4.0",
   "manifestVersion": "0.1"
