@@ -9,6 +9,7 @@
   },
   "main": "src/index.ts",
   "scripts": {
+    "prebuild": "cd ../sdk && npx tsc",
     "build": "mm-snap build",
     "test": "vitest run"
   },
