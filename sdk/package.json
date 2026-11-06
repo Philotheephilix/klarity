@@ -10,5 +10,9 @@
     "@types/node": "^22",
     "typescript": "^5",
     "vitest": "^2"
+  },
+  "dependencies": {
+    "@ethereum-attestation-service/eas-sdk": "^2.10.0",
+    "ethers": "^6.17.0"
   }
 }
