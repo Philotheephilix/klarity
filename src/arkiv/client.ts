@@ -50,7 +50,7 @@ export type QueryFilter = Partial<{
 }>;
 
 // Optional columns that a patch may need to clear when the new record omits them.
-export const OPTIONAL_COLUMNS = ['authorizedBy', 'eip712PrimaryType', 'functionName'] as const;
+export const OPTIONAL_COLUMNS = ['authorizedBy', 'eip712PrimaryType', 'functionName', 'attestationUID', 'attester'] as const;
 
 /**
  * The shared column list every read selects. Browse/list reads use it as-is;
@@ -74,6 +74,8 @@ const BASE_SELECT = {
   eip712PrimaryType: true,
   contentHash: true,
   schemaVersion: true,
+  attestationUID: true,
+  attester: true,
 } as const;
 
 /**

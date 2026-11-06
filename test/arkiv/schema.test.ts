@@ -70,6 +70,8 @@ describe('ClearSignDescriptor schema', () => {
       'authorizedBy',
       'source',
       'eip712PrimaryType',
+      'attestationUID',
+      'attester',
     ].sort();
     expect([...INDEXED_ATTRIBUTES].sort()).toEqual(expected);
 
@@ -208,5 +210,55 @@ describe('toValues mapping helper', () => {
     expect(values.eip712PrimaryType).toBeUndefined();
     expect(OPTIONAL_COLUMNS).toContain('functionName');
     expect(OPTIONAL_COLUMNS).toContain('eip712PrimaryType');
+  });
+});
+
+const VALID_UID = '0x' + 'ab'.repeat(32);
+const EF_ATTESTER = '0x00000000000000000000000000000000000000ef';
+
+describe('toValues attestation columns (EF gate)', () => {
+  it('includes attestationUID (str) and attester (addr) when both supplied and the UID is well-formed', () => {
+    const values = toValues(calldataRec, {
+      source: 'authorized-write',
+      contentHash: CONTENT_HASH,
+      attestationUID: VALID_UID,
+      attester: EF_ATTESTER,
+    });
+    expect(values.attestationUID).toMatchObject({ type: 'str', value: VALID_UID });
+    expect(values.attester).toMatchObject({ type: 'addr' });
+    expect(isArkivValue(values.attestationUID)).toBe(true);
+    expect(isArkivValue(values.attester)).toBe(true);
+  });
+
+  it('omits both attestation columns when no attestation is supplied', () => {
+    const values = toValues(calldataRec, { source: 'github-sync', contentHash: CONTENT_HASH });
+    expect(values.attestationUID).toBeUndefined();
+    expect(values.attester).toBeUndefined();
+  });
+
+  it('omits a malformed attestationUID (not 0x + 64 hex) and its attester', () => {
+    const notHex = toValues(calldataRec, {
+      source: 'authorized-write',
+      contentHash: CONTENT_HASH,
+      attestationUID: '0xdeadbeef',
+      attester: EF_ATTESTER,
+    });
+    expect(notHex.attestationUID).toBeUndefined();
+    expect(notHex.attester).toBeUndefined();
+  });
+
+  it('lists attestationUID and attester in client OPTIONAL_COLUMNS (cleared on re-sync)', () => {
+    expect(OPTIONAL_COLUMNS).toContain('attestationUID');
+    expect(OPTIONAL_COLUMNS).toContain('attester');
+  });
+
+  it('declares attestationUID and attester indexed + optional', () => {
+    const cols = ClearSignDescriptor.columns;
+    expect(cols.attestationUID?.isIndexed).toBe(true);
+    expect(cols.attestationUID?.isOptional).toBe(true);
+    expect(cols.attester?.isIndexed).toBe(true);
+    expect(cols.attester?.isOptional).toBe(true);
+    expect(INDEXED_ATTRIBUTES).toContain('attestationUID');
+    expect(INDEXED_ATTRIBUTES).toContain('attester');
   });
 });
