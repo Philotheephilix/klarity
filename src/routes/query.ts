@@ -40,12 +40,21 @@ function isArkivValue(v: unknown): v is ArkivValue {
   );
 }
 
+/**
+ * Coerce a BigInt to the narrowest lossless JSON value: a Number when it fits
+ * in the safe-integer range, otherwise a decimal string. Fastify cannot
+ * serialize a BigInt, and `Number(bigint)` silently rounds above 2^53-1, so a
+ * large u64/u256 must round-trip as a string rather than a corrupted number.
+ */
+function bigintToJson(n: bigint): number | string {
+  return n >= -9007199254740991n && n <= 9007199254740991n ? Number(n) : n.toString();
+}
+
 function unwrapValue(v: unknown): unknown {
-  if (typeof v === 'bigint') return Number(v);
+  if (typeof v === 'bigint') return bigintToJson(v);
   if (isArkivValue(v)) {
     const inner = v.value;
-    if (v.type === 'u64' && typeof inner === 'bigint') return Number(inner);
-    if (typeof inner === 'bigint') return inner.toString();
+    if (typeof inner === 'bigint') return bigintToJson(inner);
     return inner;
   }
   return v;

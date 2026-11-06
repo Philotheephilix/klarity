@@ -135,6 +135,29 @@ describe('GET query routes', () => {
     await app.close();
   });
 
+  it('unwraps a u64 above 2^53 as a decimal string, not a rounded Number', async () => {
+    // Number(bigint) silently rounds above Number.MAX_SAFE_INTEGER, corrupting
+    // large ids. Such a value must round-trip losslessly as a decimal string.
+    const big = 9007199254740993n; // 2^53 + 1 — not representable as a Number
+    const row = {
+      $key: '0xkey',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
+      someU64: { type: 'u64', value: big },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as Record<string, unknown>;
+    expect(json.chainId).toBe(1); // in-range u64 still a Number
+    expect(json.someU64).toBe(big.toString()); // out-of-range u64 preserved as string
+    await app.close();
+  });
+
   it('body present + hash matches -> inlines decoded formatBlock, 200', async () => {
     const formatBlock = { intent: 'Transfer', fields: [{ path: 'to', label: 'To' }] };
     const canonical = canonicalHash(formatBlock).canonical;
