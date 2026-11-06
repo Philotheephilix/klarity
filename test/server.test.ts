@@ -180,6 +180,57 @@ describe('GET query routes', () => {
     await app.close();
   });
 
+  it('row WITH attestationUID+attester -> verified.efApproved true, public tier empty', async () => {
+    const ATT_UID = '0x' + 'a7'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const row = {
+      $key: '0xkey',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
+      attestationUID: { type: 'str', value: ATT_UID },
+      attester: { type: 'addr', value: ATT_SIGNER },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { verified: Record<string, unknown> };
+    expect(json.verified).toEqual({
+      efApproved: true,
+      efAttester: ATT_SIGNER,
+      efAttestationUID: ATT_UID,
+      publicVouches: 0,
+      rankedAttesters: [],
+    });
+    await app.close();
+  });
+
+  it('row WITHOUT attestation columns -> verified.efApproved false, public tier empty', async () => {
+    const row = {
+      $key: '0xkey',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { verified: Record<string, unknown> };
+    expect(json.verified).toEqual({
+      efApproved: false,
+      publicVouches: 0,
+      rankedAttesters: [],
+    });
+    expect(json.verified.efAttester).toBeUndefined();
+    await app.close();
+  });
+
   it('body present + hash mismatch -> 500', async () => {
     const formatBlock = { intent: 'Transfer' };
     const canonical = canonicalHash(formatBlock).canonical;

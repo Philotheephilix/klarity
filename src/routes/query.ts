@@ -70,6 +70,39 @@ function unwrapRow(row: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
+ * The two-tier trust block attached to a single-descriptor response.
+ *
+ * EF tier (Tier 1): derived from the stored `attestationUID`/`attester` columns
+ * (Task 5), so no live EAS read happens on GET — the row carrying a UID is the
+ * proof the EF gate signed it. Public tier (Tier 2): best-effort on the HTTP
+ * route; it defaults to empty because a live interaction-proof check needs an
+ * EAS indexer the server does not query here. The SDK's `verifyDescriptor` is
+ * the authoritative live public check. `attestedAt` is omitted in v1.
+ */
+interface VerifiedBlockOut {
+  efApproved: boolean;
+  efAttester?: string;
+  efAttestationUID?: string;
+  publicVouches: number;
+  rankedAttesters: unknown[];
+}
+
+function buildVerified(row: Record<string, unknown>): VerifiedBlockOut {
+  const uid = unwrapValue(row.attestationUID);
+  const attester = unwrapValue(row.attester);
+  if (typeof uid === 'string' && uid !== '') {
+    return {
+      efApproved: true,
+      efAttester: typeof attester === 'string' ? attester : undefined,
+      efAttestationUID: uid,
+      publicVouches: 0,
+      rankedAttesters: [],
+    };
+  }
+  return { efApproved: false, publicVouches: 0, rankedAttesters: [] };
+}
+
+/**
  * Read-only query routes: look up mirrored descriptors by identity, by contract,
  * or by a filtered browse. Also the nonce-suggestion convenience endpoint.
  *
@@ -97,15 +130,21 @@ export function registerQueryRoutes(app: FastifyInstance, deps: ServerDeps): voi
       }
       // Absent/empty body → return the row as-is (pre-column rows). A decode or
       // hash-mismatch failure is a 500, never an unhandled throw.
+      const verified = buildVerified(row);
       const bodyResult = decodeBody(row);
       if (!bodyResult.ok) {
-        if (bodyResult.reason === 'absent') return unwrapRow(row);
+        if (bodyResult.reason === 'absent') {
+          const bare = unwrapRow(row);
+          bare.verified = verified;
+          return bare;
+        }
         return reply.internalServerError(
           bodyResult.reason === 'decode' ? 'body decode failed' : 'body hash mismatch',
         );
       }
       const out = unwrapRow(row);
       out.formatBlock = bodyResult.formatBlock;
+      out.verified = verified;
       return out;
     },
   );

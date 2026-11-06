@@ -72,12 +72,34 @@ curl 'http://127.0.0.1:3000/descriptors/1/0xa1ea2f8c0518458975e09ed63bf5d48980f7
       { "format": "tokenAmount", "label": "Amount", "params": { "tokenPath": "token" }, "path": "amount" },
       { "format": "duration", "label": "Withdrawals wait", "path": "config.exitDelay" }
     ]
+  },
+  "verified": {
+    "efApproved": true,
+    "efAttester": "0x00000000000000000000000000000000000000ef",
+    "efAttestationUID": "0xa7a7…a7a7",
+    "publicVouches": 0,
+    "rankedAttesters": []
   }
 }
 ```
 
 > Pre-body rows (written before the body-store feature) return `200` with the row
 > columns but no `formatBlock`.
+
+#### The `verified` block (two-tier trust)
+
+Every single-descriptor response carries a `verified` block:
+
+- **EF tier (Tier 1 — the gate).** `efApproved` is `true` iff the mirrored row
+  carries an `attestationUID` stamped by the EF-signed EAS attestation written on
+  an authorized write; `efAttester`/`efAttestationUID` identify it. This is read
+  straight off the stored columns — **no live EAS read happens on `GET`**. A row
+  with no attestation returns `{ "efApproved": false, "publicVouches": 0, "rankedAttesters": [] }`.
+- **Public tier (Tier 2 — ranking).** `publicVouches`/`rankedAttesters` surface
+  interaction-proven public vouches. On this HTTP route they default to empty: a
+  live vouch check requires verifying each vouch's `interactionTxHash` against the
+  chain, which the server does not do on a read. The SDK's `verifyDescriptor`
+  (`@klarity/sdk`) is the authoritative live public check.
 
 ---
 
