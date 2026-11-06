@@ -59,12 +59,14 @@ export interface InteractionProvider {
   getTransactionReceipt(hash: string): Promise<{ status?: number | string | null } | null>;
 }
 
-/** The 4 fields of the extended public (Tier 2) schema. */
+/** The 6 fields of the extended public (Tier 2) schema. */
 export interface PublicData {
   descriptorHash: string;
   contract: string;
   chainId: number;
   interactionTxHash: string;
+  rating: number;
+  comment: string;
 }
 
 export interface InteractionClaim {
@@ -83,7 +85,7 @@ export interface VerifyDescriptorOptions {
   now?: bigint;
 }
 
-/** Encode the 4-field public-schema call data. */
+/** Encode the 6-field public-schema call data. */
 export function encodePublicData(d: PublicData): string {
   const encoder = new SchemaEncoder(PUBLIC_SCHEMA_STRING);
   return encoder.encodeData([
@@ -91,10 +93,12 @@ export function encodePublicData(d: PublicData): string {
     { name: 'contract', type: 'address', value: d.contract },
     { name: 'chainId', type: 'uint256', value: BigInt(d.chainId) },
     { name: 'interactionTxHash', type: 'bytes32', value: d.interactionTxHash },
+    { name: 'rating', type: 'uint8', value: d.rating },
+    { name: 'comment', type: 'string', value: d.comment },
   ]);
 }
 
-/** Decode the 4-field public-schema call data. */
+/** Decode the 6-field public-schema call data. */
 export function decodePublicData(data: string): PublicData {
   const encoder = new SchemaEncoder(PUBLIC_SCHEMA_STRING);
   const items = encoder.decodeData(data);
@@ -105,6 +109,8 @@ export function decodePublicData(data: string): PublicData {
     contract: String(byName.contract),
     chainId: Number(byName.chainId),
     interactionTxHash: String(byName.interactionTxHash),
+    rating: Number(byName.rating),
+    comment: String(byName.comment),
   };
 }
 
@@ -224,6 +230,8 @@ export class KlarityAttester {
       contract: claim.contract,
       chainId: this.profile.chainId,
       interactionTxHash: claim.interactionTxHash,
+      rating: 0,
+      comment: '',
     });
     const tx = await this.eas().attest({
       schema: this.profile.publicSchemaUID,

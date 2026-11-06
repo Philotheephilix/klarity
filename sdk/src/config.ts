@@ -20,9 +20,9 @@ export interface EasProfile {
 /** ERC-8176 canonical EF schema — exactly this string, never altered. */
 export const EF_SCHEMA_STRING = 'bytes32 descriptorHash';
 
-/** Extended public (Tier 2) schema — exactly these 4 fields, never altered. */
+/** Extended public (Tier 2) schema — exactly these 6 fields, never altered. */
 export const PUBLIC_SCHEMA_STRING =
-  'bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash';
+  'bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash,uint8 rating,string comment';
 
 /** Ethereum mainnet — the default. EF schema UID is pinned (ERC-8176 registration). */
 export const MAINNET: EasProfile = {

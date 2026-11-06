@@ -77,19 +77,27 @@ function publicAttestation(over: Partial<Attestation>): Attestation {
 }
 
 describe('encodePublicData / decodePublicData', () => {
-  it('round-trips the 4-field public schema', () => {
+  it('round-trips the 6-field public schema', () => {
     const h = '0x' + 'ab'.repeat(32);
     const encoded = encodePublicData({
       descriptorHash: h,
       contract: CONTRACT,
       chainId: 1,
       interactionTxHash: TX_OK,
+      rating: 5,
+      comment: 'did exactly what it said',
     });
     const decoded = decodePublicData(encoded);
     expect(decoded.descriptorHash.toLowerCase()).toBe(h.toLowerCase());
     expect(decoded.contract.toLowerCase()).toBe(CONTRACT.toLowerCase());
     expect(Number(decoded.chainId)).toBe(1);
     expect(decoded.interactionTxHash.toLowerCase()).toBe(TX_OK.toLowerCase());
+    expect(decoded.rating).toBe(5);
+    expect(decoded.comment).toBe('did exactly what it said');
+  });
+
+  it('throws on empty (0x) data', () => {
+    expect(() => decodePublicData('0x')).toThrow();
   });
 });
 
@@ -159,6 +167,8 @@ describe('KlarityAttester.verifyPublic + verifyDescriptor', () => {
       contract: CONTRACT,
       chainId: 1,
       interactionTxHash: txHash,
+      rating: 5,
+      comment: 'did exactly what it said',
     });
   }
 
@@ -186,6 +196,8 @@ describe('KlarityAttester.verifyPublic + verifyDescriptor', () => {
       contract: CONTRACT,
       chainId: 1,
       interactionTxHash: TX_OK,
+      rating: 5,
+      comment: 'did exactly what it said',
     });
     const a = attesterWith([
       publicAttestation({ attester: ATTESTER_A, data: wrongSubject, uid: '0x' + 'c3'.repeat(32) }),
@@ -222,12 +234,16 @@ describe('KlarityAttester.verifyPublic + verifyDescriptor', () => {
       contract: CONTRACT,
       chainId: 999, // != PROFILE.chainId (1)
       interactionTxHash: TX_FORGED,
+      rating: 5,
+      comment: 'did exactly what it said',
     });
     const rightChain = encodePublicData({
       descriptorHash: descriptorHash(DESCRIPTOR),
       contract: CONTRACT,
       chainId: PROFILE.chainId, // == 1
       interactionTxHash: TX_OK,
+      rating: 5,
+      comment: 'did exactly what it said',
     });
     const a = attesterWith([
       publicAttestation({ attester: ATTESTER_B, data: wrongChain, uid: '0x' + 'f1'.repeat(32) }),

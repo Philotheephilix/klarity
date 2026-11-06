@@ -18,9 +18,9 @@ describe('EAS chain config profiles', () => {
     expect(EF_SCHEMA_STRING).toBe('bytes32 descriptorHash');
   });
 
-  it('PUBLIC_SCHEMA_STRING is exactly the 4-field extended schema', () => {
+  it('PUBLIC_SCHEMA_STRING is exactly the 6-field extended schema', () => {
     expect(PUBLIC_SCHEMA_STRING).toBe(
-      'bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash',
+      'bytes32 descriptorHash,address contract,uint256 chainId,bytes32 interactionTxHash,uint8 rating,string comment',
     );
   });
 
