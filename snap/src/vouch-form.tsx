@@ -25,6 +25,20 @@ import {
   Text,
 } from '@metamask/snaps-sdk/jsx';
 
+/**
+ * Precise per-component element types, derived from the imported component
+ * factories. The strictly-typed `Field`/`RadioGroup` children slots demand these
+ * exact element shapes (e.g. `SnapElement<RadioProps, 'Radio'>`), but render.tsx
+ * binds the global `JSX.Element` to the looser `GenericSnapElement`, so a bare
+ * `<Radio>`/`<Input>`/`<RadioGroup>` child widens to `GenericSnapElement` and no
+ * longer typechecks against those slots. Asserting each strict child back to its
+ * factory's `ReturnType` is a fully typed narrowing (no `any`, no suppression)
+ * that does not change the rendered output.
+ */
+type RadioEl = ReturnType<typeof Radio>;
+type InputEl = ReturnType<typeof Input>;
+type RadioGroupEl = ReturnType<typeof RadioGroup>;
+
 /** The uint8 floor a rating must meet (EAS `uint8` is `[0,255]`; 0 is not a vouch). */
 const RATING_MIN = 1;
 
@@ -63,16 +77,18 @@ export function renderVouchForm(args: {
           transaction is mined.
         </Text>
         <Field label="Rating">
-          <RadioGroup name="rating">
-            <Radio value="1">1</Radio>
-            <Radio value="2">2</Radio>
-            <Radio value="3">3</Radio>
-            <Radio value="4">4</Radio>
-            <Radio value="5">5</Radio>
-          </RadioGroup>
+          {(
+            <RadioGroup name="rating">
+              {(<Radio value="1">1</Radio>) as unknown as RadioEl}
+              {(<Radio value="2">2</Radio>) as unknown as RadioEl}
+              {(<Radio value="3">3</Radio>) as unknown as RadioEl}
+              {(<Radio value="4">4</Radio>) as unknown as RadioEl}
+              {(<Radio value="5">5</Radio>) as unknown as RadioEl}
+            </RadioGroup>
+          ) as unknown as RadioGroupEl}
         </Field>
         <Field label="Comment">
-          <Input name="comment" type="text" />
+          {(<Input name="comment" type="text" />) as unknown as InputEl}
         </Field>
         <Button name="submit" type="submit">
           {SUBMIT_LABEL}

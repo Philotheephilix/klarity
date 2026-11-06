@@ -8,12 +8,14 @@
  * It is PURE over an injected state accessor ({@link StateDeps}): the exported
  * functions never call `snap.request` directly, so tests drive them with an
  * in-memory stub. A thin production wrapper ({@link snapStateDeps}) builds the
- * accessor from `snap_manage_state`.
+ * accessor from `snap_manageState`.
  *
  * Keying by `interactionTxHash` is deliberate: putting the same tx twice
  * OVERWRITES rather than appends, so a double-submit of the capture form can
  * never produce two pending entries for one interaction.
  */
+
+import type { Json } from '@metamask/utils';
 
 /**
  * A captured-but-not-yet-submitted vouch. `attemptedUid` is set once a
@@ -38,7 +40,7 @@ export type PendingState = {
 };
 
 /**
- * The injectable state seam. Production wraps `snap_manage_state`; tests inject
+ * The injectable state seam. Production wraps `snap_manageState`; tests inject
  * an in-memory closure. `get` may resolve to `undefined`/`null`/`{}` on first
  * run; {@link normalize} copes with all three.
  */
@@ -131,7 +133,7 @@ export async function markAttempted(
 }
 
 /**
- * Build a production {@link StateDeps} backed by `snap_manage_state`.
+ * Build a production {@link StateDeps} backed by `snap_manageState`.
  *
  * This is the only place that touches `snap.request`; it is intentionally NOT
  * exercised by unit tests, which inject an in-memory accessor instead.
@@ -142,13 +144,16 @@ export function snapStateDeps(): StateDeps {
   return {
     get: async () =>
       (await snap.request({
-        method: 'snap_manage_state',
+        method: 'snap_manageState',
         params: { operation: 'get' },
       })) as PendingState | null,
     set: async (s: PendingState) => {
       await snap.request({
-        method: 'snap_manage_state',
-        params: { operation: 'update', newState: s as unknown as Record<string, unknown> },
+        method: 'snap_manageState',
+        params: {
+          operation: 'update',
+          newState: s as unknown as Record<string, Json>,
+        },
       });
     },
   };
