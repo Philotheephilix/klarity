@@ -11,6 +11,7 @@
   "scripts": {
     "prebuild": "cd ../sdk && npx tsc",
     "build": "mm-snap build",
+    "build:companion": "esbuild companion/app.ts --bundle --format=esm --outfile=companion/app.js",
     "test": "vitest run"
   },
   "dependencies": {
