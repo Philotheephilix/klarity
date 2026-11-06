@@ -187,27 +187,45 @@ export function registerWriteRoutes(app: FastifyInstance, deps: ServerDeps): voi
     }
 
     // Optional EF attestation. A configured attester signs an EAS attestation
-    // over the content hash and we stamp the UID onto the mirrored row. An
-    // attestation failure MUST NOT fail the write — the descriptor is already
-    // mirrored; attestation is an additive trust signal, re-attestable later.
+    // over the content hash; we then stamp the UID onto EVERY mirrored record
+    // (the attestation is over the whole descriptor, so each selector's row
+    // must carry it). An attestation failure MUST NOT fail the write — the
+    // descriptor is already mirrored; attestation is an additive trust signal.
     let attested = false;
     let attestationUID: string | undefined;
     if (attester) {
+      let uid: string | undefined;
+      let efAttester: string | undefined;
       try {
-        const { uid, attester: efAttester } = await attester.attest(contentHash);
-        const firstRec = records[0]!;
-        const patch = await arkiv.upsert(firstRec, {
-          source: 'authorized-write',
-          authorizedBy: signer,
-          contentHash,
-          attestationUID: uid,
-          attester: efAttester,
-        });
-        lastEntityKey = patch.entityKey;
+        const r = await attester.attest(contentHash);
+        uid = r.uid;
+        efAttester = r.attester;
+      } catch {
+        uid = undefined; // on-chain attest itself failed — nothing minted
+      }
+      if (uid !== undefined) {
+        // The attestation is live on-chain: hold onto the UID regardless of
+        // whether the follow-up row patch succeeds (a patch failure must not
+        // discard a real attestation — losing the UID is a false negative).
         attested = true;
         attestationUID = uid;
-      } catch {
-        attested = false;
+        try {
+          for (const rec of records) {
+            const patch = await arkiv.upsert(rec, {
+              source: 'authorized-write',
+              authorizedBy: signer,
+              contentHash,
+              attestationUID: uid,
+              attester: efAttester,
+            });
+            lastEntityKey = patch.entityKey;
+            lastTxHash = patch.txHash;
+          }
+        } catch {
+          // Row patch failed after a successful on-chain attest. Keep
+          // attested:true + the UID; the entityKey/txHash remain the last
+          // successful write's pair (set above). Re-stampable later.
+        }
       }
     }
 

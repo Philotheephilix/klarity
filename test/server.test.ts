@@ -30,6 +30,27 @@ function oneRecordDescriptor() {
   };
 }
 
+// A descriptor with two display formats -> two EntityRecords (two selectors).
+function twoRecordDescriptor() {
+  return {
+    $schema: 'https://eips.ethereum.org/assets/eip-7730/erc7730-v1.schema.json',
+    context: {
+      contract: {
+        deployments: [
+          { chainId: 1, address: '0xAbCdEf0000000000000000000000000000000001' },
+        ],
+      },
+    },
+    metadata: { owner: 'Aave' },
+    display: {
+      formats: {
+        'transfer(address,uint256)': { intent: 'Transfer' },
+        'approve(address,uint256)': { intent: 'Approve' },
+      },
+    },
+  };
+}
+
 function cfg(wallets: string[]): Config {
   return {
     arkiv: { privateKey: '', rpcUrl: '', wsUrl: '', chainId: 7794095 },
@@ -737,6 +758,143 @@ describe('POST /descriptors — signed write', () => {
     expect(body.prUrl).toBe('https://github.com/ef/registry/pull/1');
     expect(body.attested).toBe(false);
     expect(body.attestationUID).toBeUndefined();
+    await app.close();
+  });
+
+  it('multi-record descriptor: the UID is stamped on EVERY record, not just the first', async () => {
+    // A descriptor with two display formats yields two EntityRecords. An EF
+    // attestation is over the whole descriptor's content hash, so a query on
+    // either selector must surface the UID — stamping only records[0] leaves
+    // the second selector looking un-attested.
+    const descriptor = twoRecordDescriptor();
+    const ATT_UID = '0x' + 'b8'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const attest = vi.fn(async () => ({ uid: ATT_UID, attester: ATT_SIGNER }));
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER], attester: { attest } });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 20n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    // Every stamped (UID-bearing) upsert covers a distinct record. Two records
+    // -> two UID-bearing upserts, one per record identity.
+    const stamped = arkiv.upsert.mock.calls.filter(
+      (c) => (c[1] as { attestationUID?: string }).attestationUID === ATT_UID,
+    );
+    expect(stamped).toHaveLength(2);
+    const selectors = new Set(
+      stamped.map((c) => (c[0] as { selector?: string }).selector),
+    );
+    expect(selectors.size).toBe(2);
+    await app.close();
+  });
+
+  it('attest succeeds but the row patch fails: the real on-chain UID is NOT lost', async () => {
+    // attest() minted a real on-chain attestation (we hold the UID). If the
+    // follow-up row patch write then fails, we must still report attested:true
+    // with the UID — discarding a live attestation as attested:false is a
+    // false negative that silently drops trust state.
+    const descriptor = oneRecordDescriptor();
+    const ATT_UID = '0x' + 'c9'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const attest = vi.fn(async () => ({ uid: ATT_UID, attester: ATT_SIGNER }));
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER], attester: { attest } });
+    // First upsert (the mirror write) succeeds; the UID-patch upsert throws.
+    let call = 0;
+    arkiv.upsert.mockImplementation(async () => {
+      call += 1;
+      if (call === 1) return { entityKey: '0xentitykey', txHash: '0xtxhash', created: true };
+      throw new Error('arkiv patch failed');
+    });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 21n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { attested: boolean; attestationUID?: string };
+    expect(body.attested).toBe(true);
+    expect(body.attestationUID).toBe(ATT_UID);
+    await app.close();
+  });
+
+  it('attest patch returns a new tx: entityKey and txHash come from the SAME (patch) write', async () => {
+    // When the UID patch upserts, it produces its own entityKey+txHash pair.
+    // The response must return a matching pair from that final write, not an
+    // entityKey from the patch alongside a txHash from the pre-attest upsert.
+    const descriptor = oneRecordDescriptor();
+    const ATT_UID = '0x' + 'da'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const attest = vi.fn(async () => ({ uid: ATT_UID, attester: ATT_SIGNER }));
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER], attester: { attest } });
+    let call = 0;
+    arkiv.upsert.mockImplementation(async () => {
+      call += 1;
+      return call === 1
+        ? { entityKey: '0xmirror', txHash: '0xmirrortx', created: true }
+        : { entityKey: '0xpatched', txHash: '0xpatchtx', created: false };
+    });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 22n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { entityKey: string; txHash: string };
+    expect(body.entityKey).toBe('0xpatched');
+    expect(body.txHash).toBe('0xpatchtx'); // NOT '0xmirrortx'
     await app.close();
   });
 

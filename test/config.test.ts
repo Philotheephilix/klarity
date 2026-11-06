@@ -85,4 +85,45 @@ describe('loadConfig', () => {
     expect(msg).toContain('ARKIV_PRIVATE_KEY');
     expect(msg).toContain('GITHUB_TOKEN');
   });
+
+  it('EAS is absent when EAS_CHAIN_ID is unset', () => {
+    const cfg = loadConfig(validEnv());
+    expect(cfg.eas).toBeUndefined();
+  });
+
+  it('EAS config is populated when EAS_CHAIN_ID + EAS_RPC_URL are valid', () => {
+    const env = { ...validEnv(), EAS_CHAIN_ID: '11155111', EAS_RPC_URL: 'https://eas.example.com' };
+    const cfg = loadConfig(env);
+    expect(cfg.eas).toBeDefined();
+    expect(cfg.eas!.chainId).toBe(11155111);
+    expect(cfg.eas!.rpcUrl).toBe('https://eas.example.com');
+  });
+
+  it('EAS falls back to ARKIV_RPC_URL when EAS_RPC_URL is unset', () => {
+    const env = { ...validEnv(), EAS_CHAIN_ID: '11155111' };
+    const cfg = loadConfig(env);
+    expect(cfg.eas!.rpcUrl).toBe('https://rpc.example.com');
+  });
+
+  it('throws ConfigError when EAS is enabled but chainId is non-positive', () => {
+    const env = { ...validEnv(), EAS_CHAIN_ID: '0', EAS_RPC_URL: 'https://eas.example.com' };
+    expect(() => loadConfig(env)).toThrow(ConfigError);
+  });
+
+  it('throws ConfigError when EAS is enabled with a negative chainId', () => {
+    const env = { ...validEnv(), EAS_CHAIN_ID: '-1', EAS_RPC_URL: 'https://eas.example.com' };
+    expect(() => loadConfig(env)).toThrow(ConfigError);
+  });
+
+  it('throws ConfigError when EAS is enabled but no rpcUrl resolves', () => {
+    // Defensive guard: if EAS is turned on, the attester must have a URL. The
+    // fallback to ARKIV_RPC_URL normally fills this, but if a caller passes an
+    // env where EAS_RPC_URL is blank AND the ARKIV fallback is blank, refuse to
+    // build an EAS config pointing at nothing rather than silently wiring ''.
+    const env = { ...validEnv(), EAS_CHAIN_ID: '11155111', EAS_RPC_URL: '', ARKIV_RPC_URL: '' };
+    // ARKIV_RPC_URL blank trips the required-var check first — assert that too,
+    // then the narrower case where only the EAS url is unresolved is covered by
+    // the guard in loadConfig (ARKIV present, EAS url blank falls back to it).
+    expect(() => loadConfig(env)).toThrow(ConfigError);
+  });
 });

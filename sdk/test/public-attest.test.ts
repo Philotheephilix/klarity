@@ -5,6 +5,7 @@ import {
   encodePublicData,
   decodePublicData,
 } from '../src/attest.js';
+import { descriptorHash } from '../src/hash.js';
 import { MAINNET } from '../src/config.js';
 
 // MAINNET has no public schema registered yet (publicSchemaUID is ''), so verify
@@ -143,7 +144,7 @@ describe('KlarityAttester.verifyPublic + verifyDescriptor', () => {
 
   function pubData(attester: string, txHash: string): string {
     return encodePublicData({
-      descriptorHash: '0x' + 'ab'.repeat(32),
+      descriptorHash: descriptorHash(DESCRIPTOR),
       contract: CONTRACT,
       chainId: 1,
       interactionTxHash: txHash,
@@ -162,6 +163,40 @@ describe('KlarityAttester.verifyPublic + verifyDescriptor', () => {
     expect(r.rankedAttesters).toHaveLength(1);
     expect(r.rankedAttesters[0].attester.toLowerCase()).toBe(ATTESTER_A);
     expect(r.rankedAttesters[0].interactionTxHash.toLowerCase()).toBe(TX_OK.toLowerCase());
+  });
+
+  it('excludes a vouch whose encoded descriptorHash does not match the descriptor (wrong-subject forgery)', async () => {
+    // A sends a real tx to CONTRACT and signs a valid-looking public vouch, but
+    // the vouch's encoded descriptorHash is for a DIFFERENT descriptor. It must
+    // not count toward THIS descriptor's ranking even though the interaction is
+    // genuine — the subject binding is what makes the vouch specific.
+    const wrongSubject = encodePublicData({
+      descriptorHash: '0x' + 'ab'.repeat(32), // not hashOf(DESCRIPTOR)
+      contract: CONTRACT,
+      chainId: 1,
+      interactionTxHash: TX_OK,
+    });
+    const a = attesterWith([
+      publicAttestation({ attester: ATTESTER_A, data: wrongSubject, uid: '0x' + 'c3'.repeat(32) }),
+    ]);
+    const r = await a.verifyPublic(DESCRIPTOR, { provider });
+    expect(r.publicVouches).toBe(0);
+    expect(r.rankedAttesters).toHaveLength(0);
+  });
+
+  it('verifyEf returns not-approved when efSchemaUID is empty (unregistered chain)', async () => {
+    // Mirror of the verifyPublic empty-schema guard: on a chain with no EF
+    // schema registered, verifyEf must short-circuit to not-approved rather
+    // than query a zero/empty schema UID.
+    const noEf = new KlarityAttester({
+      profile: { ...PROFILE, efSchemaUID: '' },
+      readAttestations: async () => {
+        throw new Error('readAttestations must not be called when efSchemaUID is empty');
+      },
+    });
+    const v = await noEf.verifyEf(DESCRIPTOR, { trustedAttesters: [ATTESTER_A] });
+    expect(v.efApproved).toBe(false);
+    expect(v.efAttester).toBeUndefined();
   });
 
   it('verifyDescriptor merges both tiers into a VerifiedBlock', async () => {

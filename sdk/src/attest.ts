@@ -191,6 +191,9 @@ export class KlarityAttester {
     if (!this.readAttestations) {
       throw new Error('KlarityAttester: readAttestations is required for verifyEf');
     }
+    if (!this.profile.efSchemaUID) {
+      return { efApproved: false };
+    }
     const now = opts.now ?? BigInt(Math.floor(Date.now() / 1000));
     const trusted = new Set(opts.trustedAttesters.map((a) => a.toLowerCase()));
     const hash = this.hashOf(descriptor);
@@ -280,6 +283,10 @@ export class KlarityAttester {
     for (const a of candidates) {
       if (!isLive(a, BigInt(Math.floor(Date.now() / 1000)))) continue;
       const decoded = decodePublicData(a.data);
+      // Subject binding: the vouch must name THIS descriptor. A genuine
+      // interaction tx is not enough — without this check an attester could
+      // reuse a real tx to vouch for any descriptor (wrong-subject forgery).
+      if (decoded.descriptorHash.toLowerCase() !== hash.toLowerCase()) continue;
       const ok = await this.verifyInteraction(opts.provider, {
         contract: decoded.contract,
         attester: a.attester,

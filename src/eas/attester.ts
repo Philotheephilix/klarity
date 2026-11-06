@@ -19,10 +19,13 @@ export interface EfAttester {
 }
 
 /**
- * The minimal shape the factory needs from an SDK attester. `KlarityAttester`
- * satisfies it (`attestDescriptor(descriptor) => Promise<uid>` + `profile`),
- * but we accept this narrow structural type so the server need not import the
- * SDK's concrete class (and thereby eas-sdk) at this layer.
+ * The minimal shape the factory needs from an SDK attester: hash in, UID out,
+ * plus the attester address. This is a deliberately narrow ADAPTER seam — the
+ * SDK's `KlarityAttester` does NOT satisfy it directly (it exposes
+ * `attestDescriptor(descriptor) => uid` and `profile`, not `attestByHash` /
+ * `attesterAddress`). The caller that holds `@klarity/sdk` writes a thin
+ * adapter over `KlarityAttester` to this shape, so the server need not import
+ * the SDK's concrete class (and thereby eas-sdk) at this layer.
  */
 export interface SdkAttestLike {
   /** Signs + submits an EF attestation for the hash, resolving to the UID. */

@@ -95,12 +95,23 @@ export function loadConfig(env: Env = process.env): Config {
 
   // EAS wiring is opt-in: only when a chain id is configured. No key is read
   // here — the attester's signer is supplied at wire-up from the existing
-  // injected signer, never synthesized from config.
+  // injected signer, never synthesized from config. When enabled, the chain id
+  // must be a positive integer and an rpcUrl must resolve, so a misconfigured
+  // attester is never wired pointing at a bogus chain or no endpoint.
   if (env.EAS_CHAIN_ID && env.EAS_CHAIN_ID.trim() !== '') {
-    config.eas = Object.freeze({
-      chainId: parseIntOr(env.EAS_CHAIN_ID, 0),
-      rpcUrl: env.EAS_RPC_URL ?? env.ARKIV_RPC_URL ?? '',
-    });
+    const easChainId = parseIntOr(env.EAS_CHAIN_ID, 0);
+    if (!Number.isInteger(easChainId) || easChainId <= 0) {
+      throw new ConfigError(
+        `EAS_CHAIN_ID must be a positive integer when EAS is enabled, got "${env.EAS_CHAIN_ID}"`,
+      );
+    }
+    const easRpcUrl = env.EAS_RPC_URL ?? env.ARKIV_RPC_URL ?? '';
+    if (easRpcUrl.trim() === '') {
+      throw new ConfigError(
+        'EAS is enabled (EAS_CHAIN_ID set) but no rpcUrl resolves (set EAS_RPC_URL or ARKIV_RPC_URL)',
+      );
+    }
+    config.eas = Object.freeze({ chainId: easChainId, rpcUrl: easRpcUrl });
   }
 
   Object.freeze(config.arkiv);
