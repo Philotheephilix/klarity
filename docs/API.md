@@ -11,6 +11,12 @@ entities, and exposes a small HTTP API over them.
 - **Write route** requires an EIP-712 signature from an EF-allowlisted wallet.
 - **Webhook route** requires a valid GitHub `X-Hub-Signature-256` HMAC.
 
+> **TypeScript SDK.** [`@klarity/sdk`](../sdk/README.md) wraps these routes
+> (`KlarityClient`) and the two-tier EAS attestation model (`KlarityAttester`,
+> including the authoritative live public-vouch check `verifyDescriptor`). The
+> `verified` block below is the GET-time EF-tier summary; the SDK does the live
+> public-tier verification the HTTP route cannot.
+
 Every Arkiv column is stored as a `{ type, value }` envelope and `u64` reads back
 as a BigInt. The read routes **unwrap** these into plain JSON before responding:
 `chainId` is a number, string columns are plain strings, and the internal
