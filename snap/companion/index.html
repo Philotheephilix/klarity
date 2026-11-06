@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Klarity companion</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 640px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      label {
+        display: block;
+        margin-top: 0.75rem;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        padding: 0.4rem;
+        box-sizing: border-box;
+        font-family: monospace;
+      }
+      button {
+        margin-top: 1rem;
+        padding: 0.6rem 1.2rem;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      pre {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        background: #f4f4f4;
+        white-space: pre-wrap;
+        word-break: break-word;
+        min-height: 2rem;
+      }
+      .note {
+        color: #555;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Klarity companion</h1>
+    <p class="note">
+      Installs the Klarity Snap, waits for your submitted transaction to be
+      mined, then asks the Snap to record a ranking vouch. Signing happens only
+      in MetaMask; this page never asks for a private key.
+    </p>
+
+    <label for="snapId">Snap ID</label>
+    <input id="snapId" value="local:http://localhost:8080" />
+
+    <label for="apiBase">API base</label>
+    <input id="apiBase" value="http://localhost:3000" />
+
+    <label for="chainId">Chain ID</label>
+    <input id="chainId" value="11155111" />
+
+    <label for="contract">Contract</label>
+    <input id="contract" placeholder="0x..." />
+
+    <label for="selector">Selector</label>
+    <input id="selector" placeholder="0x12345678" />
+
+    <label for="txHash">Interaction tx hash</label>
+    <input id="txHash" placeholder="0x..." />
+
+    <button id="connect" type="button">Connect, poll, and vouch</button>
+
+    <pre id="status">Idle.</pre>
+
+    <script type="module" src="./app.ts"></script>
+  </body>
+</html>
