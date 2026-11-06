@@ -75,6 +75,10 @@ The service also exposes a thin read API over the same Arkiv queries. Routes
 - `GET /descriptors/:chainId/:address` — all formats for a contract
 - `GET /descriptors?chainId=…&contract=…&kind=…` — filtered browse (any indexed attr)
 
+See [`docs/API.md`](docs/API.md) for the full reference (read routes, the signed
+`POST /descriptors` write route, and the GitHub webhook), with request/response
+shapes and status codes.
+
 ```bash
 # One descriptor by (chainId, contract, selector):
 curl 'http://localhost:3000/descriptors/1/0xd01607c3c5ecaba394d8be377a08590149325722/0x474cf53d'
