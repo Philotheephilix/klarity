@@ -7,6 +7,7 @@ import {
   toValues,
 } from '../../src/arkiv/schema.js';
 import { descriptorHash } from '../../src/hash.js';
+import { OPTIONAL_COLUMNS } from '../../src/arkiv/client.js';
 import type { EntityRecord } from '../../src/normalize/types.js';
 
 const calldataRec: EntityRecord = {
@@ -191,5 +192,21 @@ describe('toValues mapping helper', () => {
     const values = toValues(big, { source: 'github-sync', contentHash: CONTENT_HASH });
     expect(values.eip712PrimaryType).toBeUndefined();
     expect(values.body).toMatchObject({ type: 'bytes' });
+  });
+
+  // Regression guard: every column toValues can omit for an over-cap record must be
+  // in OPTIONAL_COLUMNS, or a patch on re-sync leaves the stale indexed value instead
+  // of clearing it (the unset list is built by filtering OPTIONAL_COLUMNS on undefined).
+  it('lists every omittable indexed field in client OPTIONAL_COLUMNS', () => {
+    const overCap: EntityRecord = {
+      ...eip712Rec,
+      functionName: 'a'.repeat(200),
+      eip712PrimaryType: 'a'.repeat(300),
+    };
+    const values = toValues(overCap, { source: 'github-sync', contentHash: CONTENT_HASH });
+    expect(values.functionName).toBeUndefined();
+    expect(values.eip712PrimaryType).toBeUndefined();
+    expect(OPTIONAL_COLUMNS).toContain('functionName');
+    expect(OPTIONAL_COLUMNS).toContain('eip712PrimaryType');
   });
 });
