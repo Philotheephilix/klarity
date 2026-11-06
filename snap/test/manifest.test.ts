@@ -31,7 +31,7 @@ describe('snap.manifest.json', () => {
         'endowment:page-home',
         'endowment:transaction-insight',
         'snap_dialog',
-        'snap_manage_state',
+        'snap_manageState',
       ].sort(),
     );
   });

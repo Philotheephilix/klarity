@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { KlarityClient, DecodeResponse } from '@klarity/sdk';
-import { fetchDecode } from '../src/decode.js';
+import { fetchDecode, fetchDecodeOutcome } from '../src/decode.js';
 
 const sampleResponse: DecodeResponse = {
   signing: {
@@ -61,5 +61,43 @@ describe('fetchDecode', () => {
       throw new Error('boom');
     });
     await expect(fetchDecode(input, { client })).resolves.toBeNull();
+  });
+});
+
+describe('fetchDecodeOutcome', () => {
+  it('returns ok with the decode on success', async () => {
+    const client = fakeClient(async () => sampleResponse);
+    const outcome = await fetchDecodeOutcome(input, { client });
+    expect(outcome).toEqual({ ok: true, decode: sampleResponse });
+  });
+
+  it('maps a 404 to a genuine "none" (reachable API, no descriptor)', async () => {
+    const client = fakeClient(async () => {
+      // Shape mirrors KlarityClient's thrown message on a 404.
+      throw new Error('KlarityClient: POST /decode failed with 404: not found');
+    });
+    const outcome = await fetchDecodeOutcome(input, { client });
+    expect(outcome).toEqual({ ok: false, reason: 'none' });
+  });
+
+  it('maps a transport/other error to "error" with the message', async () => {
+    const client = fakeClient(async () => {
+      throw new Error('Failed to fetch');
+    });
+    const outcome = await fetchDecodeOutcome(input, { client });
+    expect(outcome).toEqual({
+      ok: false,
+      reason: 'error',
+      message: 'Failed to fetch',
+    });
+  });
+
+  it('maps a non-404 HTTP error (5xx) to "error"', async () => {
+    const client = fakeClient(async () => {
+      throw new Error('KlarityClient: POST /decode failed with 500');
+    });
+    const outcome = await fetchDecodeOutcome(input, { client });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.reason).toBe('error');
   });
 });
