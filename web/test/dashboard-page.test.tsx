@@ -4,8 +4,12 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { DescriptorRow } from '../lib/types';
 
-// next/navigation is used by DashboardShell's top-bar search + page links.
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+// next/navigation is used by AppShell's sidebar (usePathname) + top-bar search
+// (useRouter) and the page's own links.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => '/',
+}));
 
 // Stub the API client the same way the data hook reaches it: makeApi() returns
 // an object with listDescriptors(). We return known rows per entity so the
@@ -46,9 +50,17 @@ vi.mock('../lib/config', () => ({
 }));
 
 import DashboardPage from '../app/page';
+import { AppShell } from '../components/AppShell';
 
 async function renderDashboard() {
-  const utils = render(<DashboardPage />);
+  // The sidebar/top-bar chrome now lives in the shared AppShell (mounted by
+  // app/layout.tsx). Render the page inside it so the chrome assertions below
+  // reflect what a real route sees.
+  const utils = render(
+    <AppShell>
+      <DashboardPage />
+    </AppShell>,
+  );
   // Wait for the async data hook to resolve past the loading card.
   await waitFor(() => expect(screen.getByText('Total Descriptors')).toBeInTheDocument());
   return utils;
@@ -116,23 +128,29 @@ describe('Dashboard home', () => {
     expect(screen.getByText('swap')).toBeInTheDocument();
   });
 
-  it('renders Top Entities with status pills, the gauge, and the Sync Status dark card', async () => {
+  it('does not render the removed Top Entities, Verification gauge, or Sync Status cards', async () => {
     const { container } = await renderDashboard();
-    const top = screen.getByText('Top Entities').closest('.dash-card') as HTMLElement;
-    expect(within(top).getByText('1inch')).toBeInTheDocument();
-    expect(within(top).getByText('Aave')).toBeInTheDocument();
-    expect(within(top).getByText('Celo')).toBeInTheDocument();
-    expect(container.querySelector('.dash-pill')).not.toBeNull();
+    expect(screen.queryByText('Top Entities')).toBeNull();
+    expect(container.querySelector('.dash-pill')).toBeNull();
+    expect(screen.queryByText('Verification')).toBeNull();
+    expect(container.querySelector('.dash-gauge-svg')).toBeNull();
+    expect(screen.queryByText('Sync Status')).toBeNull();
+    expect(container.querySelector('.dash-sync-digits')).toBeNull();
+    expect(container.querySelector('.dash-grid-bot')).not.toBeNull();
+  });
 
-    // gauge percentage: 1 eip712 of 3 rows -> 33%
-    expect(container.querySelector('.dash-gauge-svg')).not.toBeNull();
-    expect(screen.getByText('33%')).toBeInTheDocument();
-
-    // sync-status dark card + its live timer + controls
-    expect(screen.getByText('Sync Status')).toBeInTheDocument();
-    expect(container.querySelector('.dash-sync-digits')).not.toBeNull();
-    expect(screen.getByRole('button', { name: /Pause timer|Resume timer/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Stop and reset timer' })).toBeInTheDocument();
+  it('renders the Descriptors list as the last content section (bottom of page)', async () => {
+    const { container } = await renderDashboard();
+    const list = screen.getByRole('heading', { name: 'Descriptors' }).closest('.dash-card') as HTMLElement;
+    // The descriptors list lives in the bottom grid, and that grid is the last
+    // content section rendered in the dashboard body.
+    const bottom = container.querySelector('.dash-grid-bot') as HTMLElement;
+    expect(bottom.contains(list)).toBe(true);
+    const sections = Array.from(container.querySelectorAll('section'));
+    expect(sections[sections.length - 1]).toBe(bottom);
+    // The descriptors list must NOT sit in the middle grid any more.
+    const mid = container.querySelector('.dash-grid-mid') as HTMLElement;
+    expect(mid.contains(list)).toBe(false);
   });
 
   it('contains no third-party product name and uses no <img> avatars', async () => {
@@ -141,8 +159,7 @@ describe('Dashboard home', () => {
     // guard against reintroducing the reference product name anywhere in source
     const files = [
       '../app/page.tsx',
-      '../components/DashboardShell.tsx',
-      '../components/SyncStatusCard.tsx',
+      '../components/AppShell.tsx',
       '../components/icons.tsx',
     ];
     for (const f of files) {

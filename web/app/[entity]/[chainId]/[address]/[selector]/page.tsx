@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { use } from 'react';
-import { Chrome } from '../../../../../components/Chrome';
 import { ExampleView } from '../../../../../components/ExampleView';
 import { ErrorCard, LoadingCard, useAsync } from '../../../../../components/States';
 import { makeApi } from '../../../../../lib/config';
@@ -33,7 +32,7 @@ export default function ExamplePage({
   );
 
   return (
-    <Chrome section="decode" search={false}>
+    <>
       <div className="crumbs">
         <Link href="/">Home</Link>
         <span>/</span>
@@ -58,6 +57,6 @@ export default function ExamplePage({
       {state.status === 'ready' ? (
         <ExampleView row={state.data.row} decode={state.data.decode} />
       ) : null}
-    </Chrome>
+    </>
   );
 }

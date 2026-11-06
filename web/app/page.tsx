@@ -2,19 +2,14 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { DashboardShell } from '../components/DashboardShell';
 import { ErrorCard, LoadingCard, useAsync } from '../components/States';
 import {
   fetchDashboardVM,
   formatCount,
   type DashboardVM,
-  type EntityStat,
-  type StatusKey,
 } from '../lib/dashboard';
 import { IconArrowUpRight } from '../components/icons';
-import { SyncStatusCard } from '../components/SyncStatusCard';
 import { Modal } from '../components/Modal';
-import { useToast } from '../components/Toasts';
 import { useCountUp } from '../lib/useCountUp';
 import { monogram, shortAddress } from '../lib/cardmeta';
 
@@ -22,7 +17,7 @@ export default function DashboardPage() {
   const state = useAsync(() => fetchDashboardVM(), []);
 
   return (
-    <DashboardShell active="dashboard">
+    <>
       <div className="dash-head">
         <div>
           <h1 className="dash-title">Dashboard</h1>
@@ -44,7 +39,7 @@ export default function DashboardPage() {
       {state.status === 'loading' ? <LoadingCard label="Loading dashboard" /> : null}
       {state.status === 'error' ? <ErrorCard error={state.error} /> : null}
       {state.status === 'ready' ? <DashboardBody vm={state.data} /> : null}
-    </DashboardShell>
+    </>
   );
 }
 
@@ -98,9 +93,9 @@ function DashboardBody({ vm }: { vm: DashboardVM }) {
   // its real count in the hint line + the floating tooltip.
   const [selectedChain, setSelectedChain] = useState(0);
 
-  // Modals wired to the list "New"/"Add" buttons (open/close + Escape handled
-  // inside <Modal/>). Read-only app, so these are informational panels.
-  const [modal, setModal] = useState<null | 'descriptors' | 'entities'>(null);
+  // Modal wired to the Descriptors list "New" button (open/close + Escape
+  // handled inside <Modal/>). Read-only app, so this is an informational panel.
+  const [modal, setModal] = useState<null | 'descriptors'>(null);
 
   const selected = vm.perChain[selectedChain];
 
@@ -131,7 +126,7 @@ function DashboardBody({ vm }: { vm: DashboardVM }) {
         />
       </section>
 
-      {/* Middle row: analytics (wide) + featured + recent descriptors. */}
+      {/* Middle row: analytics (wide) + featured entity. */}
       <section className="dash-grid-mid">
         <div className="dash-card dash-analytics">
           <div className="dash-card-head">
@@ -201,7 +196,10 @@ function DashboardBody({ vm }: { vm: DashboardVM }) {
             View
           </Link>
         </div>
+      </section>
 
+      {/* Bottom: the full-width Descriptors list. */}
+      <section className="dash-grid-bot">
         <div className="dash-card dash-list">
           <div className="dash-card-head">
             <h2 className="dash-card-title">Descriptors</h2>
@@ -237,13 +235,6 @@ function DashboardBody({ vm }: { vm: DashboardVM }) {
         </div>
       </section>
 
-      {/* Bottom row: top entities + gauge + sync-status dark card. */}
-      <section className="dash-grid-bot">
-        <TopEntitiesCard entities={vm.perEntity} onAdd={() => setModal('entities')} />
-        <GaugeCard vm={vm} />
-        <SyncStatusCard />
-      </section>
-
       <Modal
         open={modal === 'descriptors'}
         title="Browse descriptors"
@@ -263,177 +254,6 @@ function DashboardBody({ vm }: { vm: DashboardVM }) {
           </Link>
         </div>
       </Modal>
-
-      <Modal
-        open={modal === 'entities'}
-        title="Add an entity"
-        onClose={() => setModal(null)}
-      >
-        <p className="dash-modal-text">
-          Entities appear here automatically once the registry mirrors data for
-          them. The explorer cannot add entities — browse the full registry to
-          discover every mirrored corpus.
-        </p>
-        <div className="dash-modal-actions">
-          <button type="button" className="dash-btn dash-btn-ghost" onClick={() => setModal(null)}>
-            Close
-          </button>
-          <Link className="dash-btn dash-btn-primary" href="/browse">
-            Browse Registry
-          </Link>
-        </div>
-      </Modal>
     </>
-  );
-}
-
-const STATUS_CYCLE: StatusKey[] = ['verified', 'pending', 'unverified'];
-const STATUS_LABEL: Record<StatusKey, string> = {
-  verified: 'Verified',
-  pending: 'Pending',
-  unverified: 'Unverified',
-};
-
-function TopEntitiesCard({
-  entities,
-  onAdd,
-}: {
-  entities: EntityStat[];
-  onAdd: () => void;
-}) {
-  const toast = useToast();
-  // Local UI state cycling the visible pill label — starts from the real
-  // derived status for each entity (a demo of the interaction, not a data write).
-  const [statuses, setStatuses] = useState<StatusKey[]>(() =>
-    entities.map((e) => e.status),
-  );
-
-  function cycle(i: number) {
-    setStatuses((prev) => {
-      const next = [...prev];
-      const idx = STATUS_CYCLE.indexOf(prev[i]);
-      const nextStatus = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
-      next[i] = nextStatus;
-      toast.show(`${entities[i].displayName} → ${STATUS_LABEL[nextStatus]}`);
-      return next;
-    });
-  }
-
-  return (
-    <div className="dash-card dash-top">
-      <div className="dash-card-head">
-        <h2 className="dash-card-title">Top Entities</h2>
-        <button type="button" className="dash-mini-btn" onClick={onAdd}>
-          Add
-        </button>
-      </div>
-      <ul className="dash-rows">
-        {entities.map((e, i) => (
-          <li className="dash-row" key={e.entityName}>
-            <span className="dash-row-ico" aria-hidden="true">
-              {monogram(e.displayName)}
-            </span>
-            <span className="dash-row-text">
-              <span className="dash-row-title">{e.displayName}</span>
-              <span className="dash-row-sub">
-                {formatCount(e.count, e.capped)} descriptors
-              </span>
-            </span>
-            <button
-              type="button"
-              className="dash-pill"
-              data-status={statuses[i]}
-              onClick={() => cycle(i)}
-              title="Click to cycle the displayed status"
-            >
-              {STATUS_LABEL[statuses[i]]}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-// Gauge segments derived from the real status split; clicking a legend item
-// focuses that segment (updates centre percent + subtitle), a reskin of the
-// comp's gauge-focus interaction.
-interface GaugeSegment {
-  key: StatusKey;
-  label: string;
-  count: number;
-  pct: number;
-}
-
-function GaugeCard({ vm }: { vm: DashboardVM }) {
-  const total = Math.max(
-    1,
-    vm.statusSplit.verified + vm.statusSplit.pending + vm.statusSplit.unverified,
-  );
-  const pctOf = (n: number) => Math.round((n / total) * 100);
-  const segments: GaugeSegment[] = [
-    {
-      key: 'verified',
-      label: 'Typed (verified)',
-      count: vm.statusSplit.verified,
-      pct: vm.verifiedPct,
-    },
-    {
-      key: 'pending',
-      label: 'Calldata (pending)',
-      count: vm.statusSplit.pending,
-      pct: pctOf(vm.statusSplit.pending),
-    },
-  ];
-
-  // Default focus: the verified segment (matches the headline verifiedPct).
-  const [focus, setFocus] = useState<GaugeSegment>(segments[0]);
-
-  const r = 52;
-  const arc = Math.PI * r;
-  const filled = (focus.pct / 100) * arc;
-
-  return (
-    <div className="dash-card dash-gauge">
-      <h2 className="dash-card-title">Verification</h2>
-      <p className="dash-card-sub">Typed-data share (proxy)</p>
-      <div className="dash-gauge-wrap">
-        <svg viewBox="0 0 128 72" className="dash-gauge-svg" aria-hidden="true">
-          <path
-            d="M12 64 A52 52 0 0 1 116 64"
-            fill="none"
-            stroke="rgba(var(--ink-rgb),0.12)"
-            strokeWidth="12"
-            strokeLinecap="round"
-          />
-          <path
-            d="M12 64 A52 52 0 0 1 116 64"
-            fill="none"
-            stroke={focus.key === 'pending' ? 'var(--dash-amber)' : 'var(--ok)'}
-            strokeWidth="12"
-            strokeLinecap="round"
-            strokeDasharray={`${filled} ${arc}`}
-          />
-        </svg>
-        <div className="dash-gauge-pct">
-          <span className="dash-gauge-num">{focus.pct}%</span>
-          <span className="dash-gauge-sub">{focus.label}</span>
-        </div>
-      </div>
-      <ul className="dash-legend">
-        {segments.map((s) => (
-          <li key={s.key}>
-            <button
-              type="button"
-              className="dash-legend-btn"
-              data-on={focus.key === s.key ? 'true' : 'false'}
-              onClick={() => setFocus(s)}
-            >
-              <span className="dash-dot" data-status={s.key} /> {s.label} · {s.count}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }

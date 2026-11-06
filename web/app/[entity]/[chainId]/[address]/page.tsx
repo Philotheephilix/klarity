@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { use, useMemo, useState } from 'react';
 import { CallGrid } from '../../../../components/CallGrid';
 import { CategoryTabs } from '../../../../components/CategoryTabs';
-import { Chrome } from '../../../../components/Chrome';
 import { FilterRail, type KindFilter } from '../../../../components/FilterRail';
 import { SearchBar } from '../../../../components/SearchBar';
 import { ErrorCard, LoadingCard, useAsync } from '../../../../components/States';
@@ -54,7 +53,7 @@ export default function CallsPage({
   }
 
   return (
-    <Chrome section="companies" search={false}>
+    <>
       <div className="crumbs">
         <Link href="/">Home</Link>
         <span>/</span>
@@ -111,6 +110,6 @@ export default function CallsPage({
           ) : null}
         </div>
       </div>
-    </Chrome>
+    </>
   );
 }

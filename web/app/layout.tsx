@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import './globals.css';
+import { AppShell } from '../components/AppShell';
 
 export const metadata = {
   title: 'Klarity Explorer',
@@ -18,7 +19,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_SCRIPT }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {/* The shared app shell mounts once here and persists across client-side
+            navigation — only `children` (the page) swaps inside it. */}
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

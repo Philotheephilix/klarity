@@ -1,12 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { Chrome } from '../../components/Chrome';
 import { Card } from '../../components/Card';
 
 export default function DecodeInfoPage() {
   return (
-    <Chrome section="decode" search={false}>
+    <>
       <div className="crumbs">
         <Link href="/">Home</Link>
         <span>/</span>
@@ -32,6 +31,6 @@ export default function DecodeInfoPage() {
           </div>
         </Card>
       </div>
-    </Chrome>
+    </>
   );
 }

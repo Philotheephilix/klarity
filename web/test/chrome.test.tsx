@@ -1,31 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { Chrome } from '../components/Chrome';
 import { FilterRail } from '../components/FilterRail';
-
-describe('Chrome', () => {
-  it('renders nav.bench-nav, marks the active section, and reports search input', () => {
-    const onQuery = vi.fn();
-    const { container } = render(
-      <Chrome section="companies" query="" onQuery={onQuery}>
-        <div>body</div>
-      </Chrome>,
-    );
-    const nav = container.querySelector('nav.bench-nav');
-    expect(nav).not.toBeNull();
-
-    const companies = screen.getByRole('link', { name: 'Companies' });
-    expect(companies).toHaveAttribute('data-on', 'true');
-    const decode = screen.getByRole('link', { name: 'Decode' });
-    expect(decode).toHaveAttribute('data-on', 'false');
-
-    fireEvent.change(screen.getByPlaceholderText(/search/i), {
-      target: { value: 'safe' },
-    });
-    expect(onQuery).toHaveBeenCalledWith('safe');
-    expect(screen.getByText('body')).toBeInTheDocument();
-  });
-});
 
 describe('FilterRail', () => {
   it('renders a chip per kind and a chainId select, and reports changes', () => {

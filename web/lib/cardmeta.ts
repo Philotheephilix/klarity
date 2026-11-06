@@ -14,23 +14,13 @@ export function monogram(name: string): string {
 }
 
 /**
- * A deterministic hue (0..359) derived from a key, so each entity/contract gets
- * a stable thumbnail gradient without any external image.
+ * Inline style for a generated monogram thumbnail block. Flat, neutral surface
+ * (no gradients / per-key hues) so every card reads the same in the
+ * single-accent design system. Kept as a function so callers stay unchanged.
  */
-export function hueFromKey(key: string): number {
-  let hash = 0;
-  for (let i = 0; i < key.length; i += 1) {
-    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
-  }
-  return hash % 360;
-}
-
-/** Inline style for a generated monogram/gradient thumbnail block. */
-export function thumbStyle(key: string): Record<string, string> {
-  const h = hueFromKey(key);
-  const h2 = (h + 42) % 360;
+export function thumbStyle(_key: string): Record<string, string> {
   return {
-    background: `linear-gradient(135deg, hsl(${h} 70% 46%), hsl(${h2} 72% 38%))`,
+    background: 'var(--surface-2)',
   };
 }
 

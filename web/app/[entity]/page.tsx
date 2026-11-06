@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { use, useMemo, useState } from 'react';
 import { CategoryTabs } from '../../components/CategoryTabs';
-import { Chrome } from '../../components/Chrome';
 import { ContractGrid } from '../../components/ContractGrid';
 import { FilterRail, type KindFilter } from '../../components/FilterRail';
 import { SearchBar } from '../../components/SearchBar';
@@ -71,7 +70,7 @@ export default function ContractsPage({
   }
 
   return (
-    <Chrome section="companies" search={false}>
+    <>
       <div className="crumbs">
         <Link href="/browse">Home</Link>
         <span>/</span>
@@ -126,6 +125,6 @@ export default function ContractsPage({
           ) : null}
         </div>
       </div>
-    </Chrome>
+    </>
   );
 }

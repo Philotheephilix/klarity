@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { CallGrid } from '../components/CallGrid';
-import { Chrome } from '../components/Chrome';
 import { ContractGrid } from '../components/ContractGrid';
+import { SearchBar } from '../components/SearchBar';
 import { filterCallRows, filterContractRows } from '../lib/filter';
 import type { DescriptorRow } from '../lib/types';
 
@@ -31,25 +31,28 @@ function row(partial: Partial<DescriptorRow>): DescriptorRow {
   };
 }
 
-// Mirrors how the [entity] page composes Chrome + query state + filter + ContractGrid.
+// Mirrors how the [entity] page composes SearchBar + query state + filter +
+// ContractGrid inside the shared shell (the shell itself is layout-provided).
 function ContractsHarness({ rows }: { rows: DescriptorRow[] }) {
   const [query, setQuery] = useState('');
   const filtered = filterContractRows(rows, query);
   return (
-    <Chrome section="companies" query={query} onQuery={setQuery}>
+    <>
+      <SearchBar value={query} onChange={setQuery} placeholder={SEARCH_PLACEHOLDER} />
       <ContractGrid rows={filtered} onSelect={vi.fn()} />
-    </Chrome>
+    </>
   );
 }
 
-// Mirrors how the calls page composes Chrome + query state + filter + CallGrid.
+// Mirrors how the calls page composes SearchBar + query state + filter + CallGrid.
 function CallsHarness({ rows }: { rows: DescriptorRow[] }) {
   const [query, setQuery] = useState('');
   const filtered = filterCallRows(rows, query);
   return (
-    <Chrome section="companies" query={query} onQuery={setQuery}>
+    <>
+      <SearchBar value={query} onChange={setQuery} placeholder={SEARCH_PLACEHOLDER} />
       <CallGrid rows={filtered} onSelect={vi.fn()} />
-    </Chrome>
+    </>
   );
 }
 
@@ -89,7 +92,7 @@ describe('filterCallRows', () => {
   });
 });
 
-describe('Contracts list page wiring (Chrome search -> filter -> ContractGrid)', () => {
+describe('Contracts list page wiring (search -> filter -> ContractGrid)', () => {
   it('typing a query hides the non-matching contract card and keeps the matching one', () => {
     render(
       <ContractsHarness
@@ -110,7 +113,7 @@ describe('Contracts list page wiring (Chrome search -> filter -> ContractGrid)',
   });
 });
 
-describe('Calls list page wiring (Chrome search -> filter -> CallGrid)', () => {
+describe('Calls list page wiring (search -> filter -> CallGrid)', () => {
   it('typing a query hides the non-matching call card and keeps the matching one', () => {
     render(
       <CallsHarness
@@ -132,17 +135,6 @@ describe('Calls list page wiring (Chrome search -> filter -> CallGrid)', () => {
 });
 
 describe('No-list pages hide the inert SearchBar', () => {
-  it('Chrome with search={false} renders no search input (basis for selector detail + decode pages)', () => {
-    render(
-      <Chrome section="decode" search={false}>
-        <div>body</div>
-      </Chrome>,
-    );
-    expect(screen.queryByPlaceholderText(SEARCH_PLACEHOLDER)).not.toBeInTheDocument();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByText('body')).toBeInTheDocument();
-  });
-
   it('decode info page renders no promise-everything search input', () => {
     render(<DecodeInfoPage />);
     expect(screen.getByRole('heading', { name: 'Decode' })).toBeInTheDocument();

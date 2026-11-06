@@ -3,8 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DescriptorRow } from '../lib/types';
 import { useCountUp } from '../lib/useCountUp';
 
-// next/navigation is used by DashboardShell's top-bar search + page links.
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+// next/navigation is used by AppShell (usePathname + useRouter) and page links.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => '/',
+}));
 
 function row(partial: Partial<DescriptorRow>): DescriptorRow {
   return {
@@ -60,34 +63,6 @@ describe('useCountUp', () => {
 });
 
 describe('Dashboard interactions', () => {
-  it('cycles a Top Entities status pill through verified -> pending -> unverified', async () => {
-    const { container } = await renderDashboard();
-    const top = screen.getByText('Top Entities').closest('.dash-card') as HTMLElement;
-    const pill = within(top).getAllByRole('button').find((b) => b.classList.contains('dash-pill'))!;
-    // 1inch has one eip712 + one calldata -> dominantStatus 'verified'.
-    expect(pill).toHaveAttribute('data-status', 'verified');
-    act(() => pill.click());
-    expect(pill).toHaveAttribute('data-status', 'pending');
-    act(() => pill.click());
-    expect(pill).toHaveAttribute('data-status', 'unverified');
-    act(() => pill.click());
-    expect(pill).toHaveAttribute('data-status', 'verified');
-  });
-
-  it('gauge-focus: clicking the pending legend item updates the centre percent + subtitle', async () => {
-    const { container } = await renderDashboard();
-    const gauge = screen.getByText('Verification').closest('.dash-card') as HTMLElement;
-    // Default focus is the verified segment: 1 of 3 rows -> 33%.
-    expect(gauge.querySelector('.dash-gauge-num')).toHaveTextContent('33%');
-    const pendingBtn = within(gauge)
-      .getAllByRole('button')
-      .find((b) => b.textContent?.includes('Calldata'))!;
-    act(() => pendingBtn.click());
-    // 2 calldata of 3 -> 67%.
-    expect(gauge.querySelector('.dash-gauge-num')).toHaveTextContent('67%');
-    expect(gauge.querySelector('.dash-gauge-sub')).toHaveTextContent('Calldata');
-  });
-
   it('bar-select: clicking a chain bar moves the tooltip + updates the analytics hint', async () => {
     const { container } = await renderDashboard();
     const chart = container.querySelector('.dash-chart') as HTMLElement;

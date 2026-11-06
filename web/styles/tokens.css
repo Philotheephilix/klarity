@@ -46,24 +46,40 @@
   --fill-on: #fff;
   --fill-slab: #000;
 
-  /* Dashboard-home accent set. Derived from the user's design-system file
-   * (deep->mint green ramp) but reconciled with Klarity tokens: --dash-green
-   * aliases the existing --ok so the primary accent stays consistent. These are
-   * defined in BOTH theme blocks so the dashboard reads correctly in each. */
-  --dash-green-deep: #0d3a22;
-  --dash-green: var(--ok);
-  --dash-green-mid: #1a7d49;
-  --dash-green-mint: #4fb07f;
-  --dash-page: #0a0a0a;
-  --dash-frame: #141414;
-  --dash-surface: #0f0f0f;
-  --dash-card: #1a1a1a;
-  --dash-amber: #d9a521;
-  --dash-amber-bg: rgba(217, 165, 33, 0.14);
-  --dash-dark-card: #07241a;
-  /* Outer app-frame shell background (sits behind the frame on the soft page).
-   * On dark it is a near-black panel; on light a pure-white shell. */
-  --dash-shell: #0a0a0a;
+  /* ---- Design-system primitives (flat, neutral, single-accent). ----
+   * One accent (green, aliasing Klarity's --ok) used sparingly; everything else
+   * is a neutral gray scale. Thin 1px borders, consistent small-to-medium
+   * radii, subtle/no shadows — shadcn/ui + Vercel aesthetic. Defined in BOTH
+   * theme blocks so light + dark resolve identically restrained. */
+  --accent: var(--ok);
+  --accent-ink: var(--on-ink);
+  --accent-wash: rgba(52, 209, 122, 0.12);
+  --accent-edge: rgba(52, 209, 122, 0.35);
+
+  /* Single border token + a consistent radius scale. */
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  /* Dashboard surfaces — all flat (no gradients). --dash-green kept as an alias
+   * of the single accent; the former green-ramp stops now all resolve to the
+   * single accent so nothing renders a multi-hue gradient. */
+  --dash-green: var(--accent);
+  --dash-green-deep: var(--accent);
+  --dash-green-mid: var(--accent);
+  --dash-green-mint: var(--accent);
+  --dash-page: #000;
+  --dash-frame: #0f0f0f;
+  --dash-surface: #0a0a0a;
+  --dash-card: #0f0f0f;
+  --dash-amber: var(--ink-3);
+  --dash-amber-bg: rgba(255, 255, 255, 0.06);
+  --dash-dark-card: #0f0f0f;
+  /* Outer app-frame shell background. */
+  --dash-shell: #000;
 
   --font-head: 'Google Sans', 'Inter Head', var(--font-ui);
   --font-ui: 'Inter', 'Maison Neue', 'Instrument Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -117,23 +133,32 @@
   --fill-on: #0a0a0a;
   --fill-slab: #fff;
 
-  /* Dashboard-home accent set (light). Mirrors the dark block's contract so the
-   * dashboard switches cleanly with the existing ThemeToggle. The green ramp is
-   * derived from Klarity's own --ok (#1f9d5b): a deeper and a mid shade of the
-   * same hue, NOT the reference comp's palette literals. --dash-green aliases
-   * --ok to keep the primary accent on Klarity's token. */
-  --dash-green-deep: #0c4a2c;
-  --dash-green: var(--ok);
-  --dash-green-mid: #178a4d;
-  --dash-green-mint: #4fb07f;
-  --dash-page: #e6e8ea;
+  /* ---- Design-system primitives (flat, neutral, single-accent) — light. ----
+   * Same contract as the dark block, retuned for near-white surfaces. One
+   * accent (green, --ok) used sparingly; neutral gray scale elsewhere. */
+  --accent: var(--ok);
+  --accent-ink: var(--on-ink);
+  --accent-wash: rgba(31, 157, 91, 0.1);
+  --accent-edge: rgba(31, 157, 91, 0.32);
+
+  --border: rgba(17, 17, 17, 0.1);
+  --border-strong: rgba(17, 17, 17, 0.16);
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  /* Dashboard surfaces — all flat (no gradients) on light. */
+  --dash-green: var(--accent);
+  --dash-green-deep: var(--accent);
+  --dash-green-mid: var(--accent);
+  --dash-green-mint: var(--accent);
+  --dash-page: #fafafa;
   --dash-frame: #ffffff;
-  --dash-surface: #f6f7f8;
+  --dash-surface: #ffffff;
   --dash-card: #ffffff;
-  --dash-amber: #b9770a;
-  --dash-amber-bg: #fdf6e3;
-  --dash-dark-card: #07241a;
-  /* Outer app-frame shell background. On light a pure-white rounded shell sits
-   * on the soft grey page, matching the comp's layered-frame look. */
-  --dash-shell: #ffffff;
+  --dash-amber: var(--ink-3);
+  --dash-amber-bg: rgba(17, 17, 17, 0.05);
+  --dash-dark-card: #ffffff;
+  --dash-shell: #fafafa;
 }

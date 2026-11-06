@@ -1,7 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
 import { ToastProvider, useToast } from './Toasts';
@@ -19,14 +20,18 @@ import {
   IconBook,
 } from './icons';
 
-// Routing choices for the sidebar. Since `/` is now the dashboard, the old
-// companies list lives at `/browse`. Entity/Contracts/Calls/Chains deep-link
-// into real, kept routes: Entities -> /browse (the companies list), and the
-// data-shaped links point at a featured entity that actually has data (1inch),
-// whose [entity] page renders its contracts/calls grids. No link 404s.
+// A featured entity that actually has data (1inch) backs the data-shaped nav
+// links so Contracts/Calls deep-link into a real, populated route.
 const FEATURED_ENTITY = '1inch';
 
-const MENU_ITEMS = [
+interface NavItem {
+  id: string;
+  label: string;
+  href: string;
+  Icon: (p: { size?: number }) => ReactNode;
+}
+
+const MENU_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/', Icon: IconDashboard },
   { id: 'entities', label: 'Entities', href: '/browse', Icon: IconEntities },
   {
@@ -42,11 +47,24 @@ const MENU_ITEMS = [
     Icon: IconCalls,
   },
   { id: 'chains', label: 'Chains', href: '/browse', Icon: IconChains },
-] as const;
+];
 
-export type MenuId = (typeof MENU_ITEMS)[number]['id'];
+/**
+ * Derive the active nav id from the current pathname so the sidebar highlight
+ * tracks the route on every page (SPA). `/` -> dashboard, `/browse` ->
+ * entities, and any `/[entity]...` deep route -> contracts (the entity's
+ * contract/call view). Decode and other routes leave nothing highlighted.
+ */
+export function activeNavId(pathname: string): string {
+  if (pathname === '/') return 'dashboard';
+  if (pathname === '/browse') return 'entities';
+  if (pathname === '/decode') return '';
+  // /[entity], /[entity]/[chainId]/[address], /.../[selector]
+  if (/^\/[^/]+/.test(pathname)) return 'contracts';
+  return '';
+}
 
-function Sidebar({ active }: { active: MenuId }) {
+function Sidebar({ active }: { active: string }) {
   const toast = useToast();
   return (
     <aside className="dash-sidebar">
@@ -56,14 +74,14 @@ function Sidebar({ active }: { active: MenuId }) {
         onClick={() => toast.show('Klarity explorer — mirrored registry in sync')}
         title="Klarity"
       >
-        <KlarityMark size={30} />
+        <KlarityMark size={28} />
         <span className="dash-wordmark">Klarity</span>
       </button>
 
       <nav className="dash-nav" aria-label="Primary">
         <div className="dash-nav-group">MENU</div>
         {MENU_ITEMS.map(({ id, label, href, Icon }) => (
-          <a
+          <Link
             key={id}
             href={href}
             className="dash-nav-link"
@@ -74,61 +92,45 @@ function Sidebar({ active }: { active: MenuId }) {
               <Icon size={18} />
             </span>
             {label}
-          </a>
+          </Link>
         ))}
 
         <div className="dash-nav-group dash-nav-group-gap">GENERAL</div>
-        <a href="/" className="dash-nav-link" title="Settings" aria-label="Settings">
+        <Link href="/" className="dash-nav-link" title="Settings" aria-label="Settings">
           <span className="dash-nav-ico">
             <IconSettings size={18} />
           </span>
           Settings
-        </a>
-        <a href="/" className="dash-nav-link" title="Help" aria-label="Help">
+        </Link>
+        <Link href="/decode" className="dash-nav-link" title="Help" aria-label="Help">
           <span className="dash-nav-ico">
             <IconHelp size={18} />
           </span>
           Help
-        </a>
+        </Link>
         <div className="dash-nav-theme">
           <ThemeToggle />
         </div>
       </nav>
 
       <div className="dash-promo">
-        <svg
-          className="dash-promo-art"
-          viewBox="0 0 120 70"
-          aria-hidden="true"
-          preserveAspectRatio="none"
-        >
-          <defs>
-            <linearGradient id="klPromo" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor="var(--ok)" stopOpacity="0.9" />
-              <stop offset="1" stopColor="var(--pick)" stopOpacity="0.75" />
-            </linearGradient>
-          </defs>
-          <rect width="120" height="70" fill="url(#klPromo)" />
-          <circle cx="92" cy="14" r="26" fill="rgba(255,255,255,0.18)" />
-          <circle cx="24" cy="60" r="20" fill="rgba(255,255,255,0.12)" />
-        </svg>
         <div className="dash-promo-body">
           <div className="dash-promo-title">Read the API docs</div>
           <p className="dash-promo-sub">
             Query the ERC-7730 registry from your own tools.
           </p>
-          <a className="dash-promo-btn" href="/decode">
+          <Link className="dash-promo-btn" href="/decode">
             <IconBook size={16} />
             API Docs
-          </a>
+          </Link>
         </div>
       </div>
     </aside>
   );
 }
 
-// Static quick-jump targets for the live search dropdown. Kept to real, kept
-// routes so selecting one never 404s.
+// Static quick-jump targets for the live search dropdown. Real, kept routes so
+// selecting one never 404s.
 const SEARCH_ITEMS: { title: string; sub: string; href: string }[] = [
   { title: '1inch', sub: 'Entity · mirrored corpus', href: '/1inch' },
   { title: 'Aave', sub: 'Entity · mirrored corpus', href: '/aave' },
@@ -155,7 +157,7 @@ function TopBar() {
     );
   }, [q]);
 
-  // ⌘F / Ctrl+F focuses the search + opens the dropdown; Escape closes it.
+  // Cmd/Ctrl+F focuses the search + opens the dropdown; Escape closes it.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
@@ -263,7 +265,7 @@ function TopBar() {
           aria-label="Mail"
           onClick={() => toast.show('No messages — this is a read-only explorer')}
         >
-          <IconMail size={20} />
+          <IconMail size={18} />
         </button>
         <button
           type="button"
@@ -272,7 +274,7 @@ function TopBar() {
           aria-label="Notifications"
           onClick={() => toast.show('Registry mirror is up to date')}
         >
-          <IconBell size={20} />
+          <IconBell size={18} />
         </button>
         <div className="dash-user">
           <span className="dash-avatar" aria-hidden="true">
@@ -289,18 +291,17 @@ function TopBar() {
 }
 
 /**
- * Persistent dashboard chrome: a rounded app-frame outer shell on a soft page,
- * a fixed left sidebar + a scrollable main column with a top bar. Separate from
- * Chrome.tsx (which still drives the browse pages) so neither layout breaks the
- * other. Wrapped in ToastProvider so any child can raise a toast.
+ * The single persistent application shell: a fixed left sidebar (nav with
+ * active-route highlight derived from usePathname), a sticky top bar (search +
+ * icons + avatar), and a scrollable content surface that pages render into.
+ *
+ * Mounted once in app/layout.tsx so it stays put while the page content swaps
+ * on client-side navigation (SPA). All nav + in-app links use next/link.
  */
-export function DashboardShell({
-  active = 'dashboard',
-  children,
-}: {
-  active?: MenuId;
-  children: ReactNode;
-}) {
+export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname() ?? '/';
+  const active = activeNavId(pathname);
+
   return (
     <ToastProvider>
       <div className="dash-page">
