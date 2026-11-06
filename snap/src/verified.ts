@@ -9,7 +9,7 @@
  * can show an HONEST trust line instead of crashing.
  */
 import { KlarityClient, type VerifiedBlock } from '@klarity/sdk';
-import { getApiBaseUrl } from './config.js';
+import { API_TIMEOUT_MS, getApiBaseUrl } from './config.js';
 
 export interface FetchVerifiedDeps {
   client?: KlarityClient;
@@ -29,7 +29,8 @@ export async function fetchVerified(
 ): Promise<VerifiedBlock | null> {
   try {
     const client =
-      deps.client ?? new KlarityClient({ baseUrl: getApiBaseUrl() });
+      deps.client ??
+      new KlarityClient({ baseUrl: getApiBaseUrl(), timeoutMs: API_TIMEOUT_MS });
     const row = await client.getDescriptor(chainId, contract, selector);
     return row.verified ?? null;
   } catch {

@@ -65,6 +65,38 @@ const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/u;
 
 /**
+ * Fill `@.from`-pathed fields from the transaction's sender.
+ *
+ * ERC-7730 descriptors reference transaction-level values the calldata does not
+ * carry — a 1inch "Beneficiary" is `@.from`, the sender. The decode server
+ * cannot know `from` (it only sees contract + calldata), so it leaves such a
+ * field's `value` undefined and the panel shows `-`. MetaMask DOES pass the
+ * sender to `onTransaction`, so we fill it in here: any field (visible, hidden,
+ * or one level of inner call) whose `path` is `@.from` and whose `value` is not
+ * already set gets the lower-cased sender and `type: 'address'`, so the renderer
+ * shows it as a truncated, copyable address. A missing `from` fills nothing.
+ */
+function fillTxLevelFields(decode: DecodeResponse, from: string | null): void {
+  if (from === null || !ADDRESS_RE.test(from)) {
+    return;
+  }
+  const fill = (fields: DecodeResponse['fields']): void => {
+    for (const field of fields) {
+      if (field.path === '@.from' && field.value === undefined) {
+        field.value = from;
+        field.type = 'address';
+      }
+      if (field.inner) {
+        fill(field.inner.fields);
+        fill(field.inner.hiddenFields);
+      }
+    }
+  };
+  fill(decode.fields);
+  fill(decode.hiddenFields);
+}
+
+/**
  * Collect every concrete ERC-20 token address referenced by an amount field,
  * walking one level of nested `inner` call too. Only `params.token` literals are
  * collected; `params.tokenPath` indirections and the zero address are skipped
@@ -152,7 +184,7 @@ export async function buildInsight(
 ): Promise<{ content: JSXElement }> {
   try {
     const chainId = parseChainId(args.chainId);
-    const { contract, selector, calldata } = parseTx(args.transaction);
+    const { contract, selector, calldata, from } = parseTx(args.transaction);
 
     if (contract === null || calldata === null) {
       return { content: asInsightContent(renderInsight(null, null)) };
@@ -167,6 +199,10 @@ export async function buildInsight(
       decodeOutcome.ok || decodeOutcome.reason !== 'error'
         ? null
         : decodeOutcome.message;
+
+    if (decode !== null) {
+      fillTxLevelFields(decode, from);
+    }
 
     const verified =
       selector === null

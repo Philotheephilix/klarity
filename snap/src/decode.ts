@@ -8,7 +8,7 @@
  * `null` so the caller can fall back to raw signing instead of crashing.
  */
 import { KlarityClient, type DecodeResponse } from '@klarity/sdk';
-import { getApiBaseUrl } from './config.js';
+import { API_TIMEOUT_MS, getApiBaseUrl } from './config.js';
 
 export interface DecodeInput {
   chainId: number;
@@ -54,7 +54,8 @@ export async function fetchDecodeOutcome(
 ): Promise<DecodeOutcome> {
   try {
     const client =
-      deps.client ?? new KlarityClient({ baseUrl: getApiBaseUrl() });
+      deps.client ??
+      new KlarityClient({ baseUrl: getApiBaseUrl(), timeoutMs: API_TIMEOUT_MS });
     const decode = await client.decode({
       chainId: input.chainId,
       contract: input.contract,

@@ -10,6 +10,16 @@ import { PROFILES, SEPOLIA, type EasProfile } from '@klarity/sdk';
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:3000';
 
 /**
+ * Per-request timeout (ms) for calls to the Klarity server from inside the
+ * `onTransaction` handler. The insight panel shows a loading spinner until the
+ * handler returns; an unbounded decode fetch against a slow or hung server
+ * leaves that spinner up forever. 4s is comfortably longer than a healthy
+ * decode (tens of ms) yet short enough that a dead server degrades to the
+ * honest "decode error" panel promptly instead of hanging.
+ */
+export const API_TIMEOUT_MS = 4000;
+
+/**
  * Resolve the Klarity API base URL.
  *
  * Defaults to the local server. This is the documented override hook: a later

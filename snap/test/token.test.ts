@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatAmount, resolveToken } from '../src/token.js';
+import { capFractionDigits, formatAmount, resolveToken } from '../src/token.js';
 
 /**
  * Encode a uint8 return (decimals) as a 32-byte ABI word, 0x-prefixed.
@@ -47,6 +47,37 @@ describe('formatAmount', () => {
 
   it('trims trailing fractional zeros but keeps at least one', () => {
     expect(formatAmount('1500000', 6)).toBe('1.5');
+  });
+});
+
+describe('capFractionDigits', () => {
+  it('keeps 4 significant fractional digits past leading zeros', () => {
+    expect(capFractionDigits('0.000444551696531516')).toBe('0.0004445');
+  });
+
+  it('leaves an already-short fraction untouched', () => {
+    expect(capFractionDigits('1.23')).toBe('1.23');
+  });
+
+  it('keeps the single zero of a whole amount', () => {
+    expect(capFractionDigits('1.0')).toBe('1.0');
+  });
+
+  it('returns an integer (no dot) unchanged', () => {
+    expect(capFractionDigits('42')).toBe('42');
+  });
+
+  it('truncates toward zero rather than rounding up', () => {
+    // 5th significant digit is 5 but we truncate, never overstating the amount.
+    expect(capFractionDigits('0.00012349')).toBe('0.0001234');
+  });
+
+  it('respects a custom significant-digit cap', () => {
+    expect(capFractionDigits('0.000444551696531516', 2)).toBe('0.00044');
+  });
+
+  it('trims trailing zeros inside the kept window', () => {
+    expect(capFractionDigits('1.2500')).toBe('1.25');
   });
 });
 

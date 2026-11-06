@@ -10,19 +10,9 @@ import {
   KlarityMark,
   IconDashboard,
   IconEntities,
-  IconContracts,
-  IconCalls,
-  IconChains,
   IconSettings,
-  IconHelp,
-  IconMail,
-  IconBell,
   IconBook,
 } from './icons';
-
-// A featured entity that actually has data (1inch) backs the data-shaped nav
-// links so Contracts/Calls deep-link into a real, populated route.
-const FEATURED_ENTITY = '1inch';
 
 interface NavItem {
   id: string;
@@ -34,19 +24,6 @@ interface NavItem {
 const MENU_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/', Icon: IconDashboard },
   { id: 'entities', label: 'Entities', href: '/browse', Icon: IconEntities },
-  {
-    id: 'contracts',
-    label: 'Contracts',
-    href: `/${FEATURED_ENTITY}`,
-    Icon: IconContracts,
-  },
-  {
-    id: 'calls',
-    label: 'Calls',
-    href: `/${FEATURED_ENTITY}`,
-    Icon: IconCalls,
-  },
-  { id: 'chains', label: 'Chains', href: '/browse', Icon: IconChains },
 ];
 
 /**
@@ -102,12 +79,6 @@ function Sidebar({ active }: { active: string }) {
           </span>
           Settings
         </Link>
-        <Link href="/decode" className="dash-nav-link" title="Help" aria-label="Help">
-          <span className="dash-nav-ico">
-            <IconHelp size={18} />
-          </span>
-          Help
-        </Link>
         <div className="dash-nav-theme">
           <ThemeToggle />
         </div>
@@ -119,9 +90,9 @@ function Sidebar({ active }: { active: string }) {
           <p className="dash-promo-sub">
             Query the ERC-7730 registry from your own tools.
           </p>
-          <Link className="dash-promo-btn" href="/decode">
+          <Link className="dash-promo-btn" href="/docs">
             <IconBook size={16} />
-            API Docs
+            Read the docs
           </Link>
         </div>
       </div>
@@ -255,36 +226,6 @@ function TopBar() {
             )}
           </div>
         ) : null}
-      </div>
-
-      <div className="dash-topbar-right">
-        <button
-          type="button"
-          className="dash-icon-btn"
-          title="Mail"
-          aria-label="Mail"
-          onClick={() => toast.show('No messages — this is a read-only explorer')}
-        >
-          <IconMail size={18} />
-        </button>
-        <button
-          type="button"
-          className="dash-icon-btn"
-          title="Notifications"
-          aria-label="Notifications"
-          onClick={() => toast.show('Registry mirror is up to date')}
-        >
-          <IconBell size={18} />
-        </button>
-        <div className="dash-user">
-          <span className="dash-avatar" aria-hidden="true">
-            KL
-          </span>
-          <span className="dash-user-text">
-            <span className="dash-user-name">Klarity</span>
-            <span className="dash-user-mail">explorer@klarity.local</span>
-          </span>
-        </div>
       </div>
     </header>
   );

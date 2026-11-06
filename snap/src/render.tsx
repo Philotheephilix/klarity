@@ -17,10 +17,9 @@
  */
 import type { DecodeResponse, SigningField, VerifiedBlock } from '@klarity/sdk';
 import type { GenericSnapElement } from '@metamask/snaps-sdk/jsx';
-import { Box, Divider, Heading, Row, Text } from '@metamask/snaps-sdk/jsx';
+import { Box, Copyable, Divider, Heading, Row, Text } from '@metamask/snaps-sdk/jsx';
 
-import { renderVouchForm } from './vouch-form.js';
-import { formatAmount, type TokenMeta } from './token.js';
+import { capFractionDigits, formatAmount, type TokenMeta } from './token.js';
 
 /**
  * The Snaps JSX automatic runtime does not ship a global `JSX` namespace, so we
@@ -64,6 +63,57 @@ function isIntegerType(type: string | undefined): boolean {
 /** The 20-byte zero address — ERC-7730 uses it for the native asset, not ERC-20. */
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
+/** Matches a 0x-prefixed 20-byte address string. */
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/u;
+
+/**
+ * Decimals used to format an amount field whose ERC-20 token could not be
+ * resolved to a concrete address (ERC-7730 native-asset amounts, or
+ * `params.tokenPath` references the server left unresolved). 18 is the native
+ * asset convention (ETH and every EVM native coin), so a raw wei integer like
+ * `445806868670795` reads as `0.000445806868670795` instead of a wall of digits.
+ */
+const NATIVE_DECIMALS = 18;
+
+/** True for an ERC-7730 amount field (`format: "tokenAmount"`). */
+function isAmountField(field: SigningField): boolean {
+  return field.format === 'tokenAmount';
+}
+
+/**
+ * Longest a raw value is shown in full before it is truncated. Anything longer
+ * is an address (42 chars) or a `bytes` blob (swap path descriptors, encoded
+ * sub-calls, signatures) whose full text would flood the panel with an
+ * unreadable wall of hex. 15 keeps a short selector or small integer intact
+ * while trimming every address and long blob to the `3...3` form below.
+ */
+const MAX_INLINE_VALUE_LEN = 15;
+
+/** Chars of a truncated value kept on each side of the ellipsis (`abc...xyz`). */
+const TRUNC_KEEP = 3;
+
+/**
+ * Truncate a long string to `abc...xyz` form — {@link TRUNC_KEEP} chars at each
+ * end around a literal `...`. Short strings (<= {@link MAX_INLINE_VALUE_LEN})
+ * are returned unchanged.
+ */
+function truncateMiddle(value: string): string {
+  if (value.length <= MAX_INLINE_VALUE_LEN) {
+    return value;
+  }
+  return `${value.slice(0, TRUNC_KEEP)}...${value.slice(-TRUNC_KEEP)}`;
+}
+
+/**
+ * True for a value that should be shown truncated with a copy button: any
+ * address, or any value longer than {@link MAX_INLINE_VALUE_LEN} (long `bytes`
+ * blobs — swap path descriptors, encoded sub-calls, signatures, raw permits).
+ * A short scalar (a small integer, a selector, a bool) stays inline as-is.
+ */
+function isTruncatable(value: string): boolean {
+  return ADDRESS_RE.test(value) || value.length > MAX_INLINE_VALUE_LEN;
+}
+
 /**
  * The token address for an amount field, if one is RELIABLY known. ERC-7730
  * `tokenAmount` carries it as a literal `params.token`; `params.tokenPath` is an
@@ -75,7 +125,7 @@ function tokenAddressOf(field: SigningField): string | null {
   const token = field.params?.token;
   if (
     typeof token === 'string' &&
-    /^0x[0-9a-fA-F]{40}$/.test(token) &&
+    ADDRESS_RE.test(token) &&
     token.toLowerCase() !== ZERO_ADDRESS
   ) {
     return token;
@@ -84,14 +134,16 @@ function tokenAddressOf(field: SigningField): string | null {
 }
 
 /**
- * Render the inline value cell for one field as a `Text` node. Honest by
- * construction:
+ * Render the inline value cell for one field. Honest by construction:
  *   - no decoded `value` -> `-` (not decoded; never a fabricated value);
- *   - an integer with a known ERC-20 token -> `formatAmount` + symbol
- *     (`1.0 USDC`), or `"<raw> (raw)"` if that token's metadata failed to
- *     resolve;
- *   - an integer with no token address -> the plain base-10 value;
- *   - address / bytes / bool / anything else -> the canonical value as-is.
+ *   - an integer amount (`format: tokenAmount`) with a known ERC-20 token ->
+ *     `formatAmount` + symbol (`1.0 USDC`), or `"<raw> (raw)"` if that token's
+ *     metadata failed to resolve;
+ *   - an integer amount with no resolvable token -> `formatAmount` at 18 decimals
+ *     (the native-asset convention), so a raw wei integer reads as a human value;
+ *   - an address or long `bytes` value -> the `abc...xyz` truncation (its row
+ *     carries a `Copyable` with the full value — see `renderFieldRow`);
+ *   - any other integer / short scalar -> the plain value as-is.
  */
 function renderValueText(
   field: SigningField,
@@ -109,13 +161,53 @@ function renderValueText(
         // Resolve failed (or was not attempted): show raw units, marked honest.
         return <Text>{`${field.value} (raw)`}</Text>;
       }
-      const formatted = formatAmount(field.value, meta.decimals);
+      const formatted = capFractionDigits(formatAmount(field.value, meta.decimals));
       const withSymbol = meta.symbol ? `${formatted} ${meta.symbol}` : formatted;
       return <Text>{withSymbol}</Text>;
     }
+    // An amount with no resolvable ERC-20 token (native asset, or an unresolved
+    // tokenPath): format at the native 18-decimal convention. A plain non-amount
+    // integer (a nonce, a deadline) is left as its literal base-10 value.
+    if (isAmountField(field)) {
+      return <Text>{capFractionDigits(formatAmount(field.value, NATIVE_DECIMALS))}</Text>;
+    }
+  }
+
+  // An address or a long raw value (a `bytes` blob) is shown truncated to the
+  // `abc...xyz` form. The full value is NOT lost: the field's row renders a
+  // `Copyable` beneath this text (see `renderFieldRow`) so one tap copies it.
+  if (isTruncatable(field.value)) {
+    return <Text>{truncateMiddle(field.value)}</Text>;
   }
 
   return <Text>{field.value}</Text>;
+}
+
+/**
+ * Render one decoded field as a labeled row. A short scalar is a single `Row`
+ * (label + inline value). An address or long `bytes` value is a `Row` showing
+ * the `abc...xyz` truncation, followed by a `Copyable` at Box level carrying the
+ * FULL value — the copy button every address and blob gets. (`Copyable` is a
+ * block element, so it is a sibling of the `Row`, never nested inside it, which
+ * the Snaps renderer forbids.)
+ */
+function renderFieldRow(
+  field: SigningField,
+  tokenMeta: TokenMetaMap,
+  variant?: 'default',
+): JSX.Element {
+  const copyable =
+    field.value !== undefined && isTruncatable(field.value) ? (
+      <Copyable value={field.value} />
+    ) : null;
+  return (
+    <Box key={field.path}>
+      <Row label={field.label} variant={variant}>
+        {renderValueText(field, tokenMeta)}
+      </Row>
+      {copyable}
+    </Box>
+  );
 }
 
 /**
@@ -147,11 +239,7 @@ function renderInner(inner: DecodeResponse, tokenMeta: TokenMetaMap): JSX.Elemen
     <Box>
       <Text color="muted">Inner call</Text>
       <Heading>{summary}</Heading>
-      {inner.fields.map((field) => (
-        <Row label={field.label} key={`inner-${field.path}`}>
-          {renderValueText(field, tokenMeta)}
-        </Row>
-      ))}
+      {inner.fields.map((field) => renderFieldRow(field, tokenMeta))}
     </Box>
   );
 }
@@ -178,9 +266,12 @@ function renderPermit(permit: SigningField['permit']): JSX.Element | null {
     <Box>
       <Text color="muted">Permit</Text>
       {permit.fields.map((pf, i) => (
-        <Row label={pf.label} key={`permit-${i}`}>
-          <Text>{pf.value}</Text>
-        </Row>
+        <Box key={`permit-${i}`}>
+          <Row label={pf.label}>
+            <Text>{isTruncatable(pf.value) ? truncateMiddle(pf.value) : pf.value}</Text>
+          </Row>
+          {isTruncatable(pf.value) ? <Copyable value={pf.value} /> : null}
+        </Box>
       ))}
     </Box>
   );
@@ -193,8 +284,8 @@ function renderPermit(permit: SigningField['permit']): JSX.Element | null {
  * clear-signing for this transaction.
  * @param verified - The two-tier verified block, or `null` when absent.
  * @param interactionContext - The chain/contract/selector the vouch is keyed to.
- * When provided AND a decode exists, the pre-sign capture form is embedded below
- * the trust line. Omitted (e.g. a plain transfer with no selector) → no form.
+ * Retained for call-site compatibility; the panel no longer embeds a capture
+ * form, so this is currently unused by the render.
  * @param decodeError - When `decode` is `null` because the decode REQUEST FAILED
  * (unreachable API, sandbox-blocked host, 5xx) rather than a genuine 404, the
  * error message to surface beneath the no-data line. A genuine "no descriptor"
@@ -242,7 +333,7 @@ export function renderInsight(
 
       {fields.map((field) => (
         <Box key={field.path}>
-          <Row label={field.label}>{renderValueText(field, tokenMeta)}</Row>
+          {renderFieldRow(field, tokenMeta)}
           {field.permit ? renderPermit(field.permit) : null}
           {field.inner ? renderInner(field.inner, tokenMeta) : null}
         </Box>
@@ -251,11 +342,7 @@ export function renderInsight(
       {hiddenFields.length > 0 ? (
         <Box>
           <Text color="muted">Hidden fields</Text>
-          {hiddenFields.map((field) => (
-            <Row label={field.label} variant="default" key={field.path}>
-              <Text color="muted">hidden</Text>
-            </Row>
-          ))}
+          {hiddenFields.map((field) => renderFieldRow(field, tokenMeta, 'default'))}
         </Box>
       ) : null}
 
@@ -264,13 +351,6 @@ export function renderInsight(
 
       <Divider />
       <Text>{trustLine(verified)}</Text>
-
-      {interactionContext
-        ? renderVouchForm({
-            contract: interactionContext.contract,
-            interactionContext,
-          })
-        : null}
     </Box>
   );
 }

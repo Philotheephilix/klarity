@@ -56,6 +56,42 @@ export function formatAmount(raw: string, decimals: number): string {
   return `${sign}${whole}.${fracTrimmed === '' ? '0' : fracTrimmed}`;
 }
 
+/** Default cap on SIGNIFICANT fractional digits shown in the panel. */
+const DEFAULT_MAX_SIGNIFICANT = 4;
+
+/**
+ * Cap a formatted decimal string to at most `maxSignificant` SIGNIFICANT
+ * fractional digits for display — leading zeros after the point do not count,
+ * so a tiny amount keeps its magnitude. The integer part is always kept in
+ * full. This is a DISPLAY trim, not a precise round: it truncates toward zero
+ * rather than rounding, so the shown value never overstates the amount.
+ *
+ *   `"0.000444551696531516"` -> `"0.0004445"`   (4 significant digits)
+ *   `"1.2300000"`            -> `"1.23"`         (already short)
+ *   `"1.0"`                  -> `"1.0"`          (one zero digit kept)
+ *   `"42"` / `"42."`         -> `"42"`           (no fractional part)
+ *
+ * A value whose fractional part is entirely below the kept window collapses to
+ * `"0"` fractional, so at least one digit always remains after the point.
+ */
+export function capFractionDigits(
+  formatted: string,
+  maxSignificant: number = DEFAULT_MAX_SIGNIFICANT,
+): string {
+  const dot = formatted.indexOf('.');
+  if (dot === -1) {
+    return formatted;
+  }
+  const whole = formatted.slice(0, dot);
+  const frac = formatted.slice(dot + 1);
+
+  // Count leading zeros, then keep up to `maxSignificant` digits after them.
+  const leadingZeros = frac.length - frac.replace(/^0+/, '').length;
+  const keep = leadingZeros + Math.max(maxSignificant, 0);
+  const capped = frac.slice(0, keep).replace(/0+$/, '');
+  return `${whole}.${capped === '' ? '0' : capped}`;
+}
+
 /** Decode a 32-byte-word uint8 return as `decimals`. */
 function decodeUint8(hex: string): number | null {
   if (typeof hex !== 'string' || !hex.startsWith('0x')) return null;

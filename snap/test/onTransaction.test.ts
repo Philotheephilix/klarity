@@ -29,7 +29,7 @@ const decodeResponse: DecodeResponse = {
 };
 
 /** Build a transaction-insight args object of the OnTransaction shape. */
-function makeArgs(overrides: { to?: string; data?: string } = {}) {
+function makeArgs(overrides: { to?: string; data?: string; from?: string } = {}) {
   return {
     transaction: {
       from: '0x0000000000000000000000000000000000000000',
@@ -112,6 +112,26 @@ describe('buildInsight', () => {
       verifiedDeps: { client },
     });
     expect(getDescriptorCalled).toBe(false);
+  });
+
+  it('fills a @.from field (Beneficiary) from the transaction sender', async () => {
+    const sender = '0xFEEDc0DE0000000000000000000000000000000A';
+    const client = fakeClient({
+      decode: async () => ({
+        ...decodeResponse,
+        fields: [{ label: 'Beneficiary', path: '@.from', hidden: false }],
+      }),
+    });
+    const result = await buildInsight(makeArgs({ from: sender }), {
+      decodeDeps: { client },
+      verifiedDeps: { client },
+    });
+    // Filled and lower-cased: shown as the 3...3 compact form inline, with the
+    // full address carried in a Copyable so it can be copied without overflow.
+    const out = renderToString(result.content);
+    expect(out).toContain(sender.toLowerCase());
+    expect(out).toContain('0xf...00a');
+    expect(out).toContain('Copyable');
   });
 });
 

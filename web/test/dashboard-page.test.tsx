@@ -79,15 +79,15 @@ describe('Dashboard home', () => {
     expect(screen.getByRole('link', { name: 'Entities' })).toHaveAttribute('href', '/browse');
   });
 
-  it('renders the top bar: search with cmd chip, mail + bell, user block', async () => {
+  it('renders the top bar: search with cmd chip', async () => {
     await renderDashboard();
     expect(screen.getByPlaceholderText(/Search entities/)).toBeInTheDocument();
     expect(screen.getByText('⌘F')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Mail' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Notifications' })).toBeInTheDocument();
-    expect(screen.getByText('explorer@klarity.local')).toBeInTheDocument();
-    // avatar is plain initials, not an image
-    expect(screen.getByText('KL')).toBeInTheDocument();
+    // The mail/notifications buttons and user block were removed from the
+    // top bar; only the search surface remains on the right.
+    expect(screen.queryByRole('button', { name: 'Mail' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Notifications' })).toBeNull();
+    expect(screen.queryByText('explorer@klarity.local')).toBeNull();
   });
 
   it('renders the page head with title and the two action buttons', async () => {

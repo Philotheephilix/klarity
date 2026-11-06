@@ -76,4 +76,32 @@ describe('KlarityClient', () => {
     await client.listByContract(1, '0xabc');
     expect(calls[0].url).toBe('http://x/descriptors/1/0xabc');
   });
+
+  it('rejects when a configured timeout elapses before the fetch settles', async () => {
+    // A fetch that never resolves on its own: it only settles if its signal
+    // aborts. With timeoutMs set, the client's AbortController must fire and
+    // reject the request, so a hung server can never block the caller forever.
+    const neverResolves = ((_input: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(init.signal?.reason ?? new Error('aborted'));
+        });
+      })) as unknown as typeof fetch;
+
+    const client = new KlarityClient({
+      baseUrl: 'http://x',
+      fetch: neverResolves,
+      timeoutMs: 20,
+    });
+    await expect(
+      client.decode({ chainId: 1, contract: '0xdef', calldata: '0x474cf53d' }),
+    ).rejects.toThrow(/timed out/);
+  });
+
+  it('does not abort a fast request when a timeout is configured', async () => {
+    const { fn } = mockFetch({ nonce: '1' });
+    const client = new KlarityClient({ baseUrl: 'http://x', fetch: fn, timeoutMs: 1000 });
+    const res = await client.getNonce('0x1');
+    expect(res.nonce).toBe('1');
+  });
 });

@@ -30,7 +30,7 @@ export default function DashboardPage() {
           <Link className="dash-btn dash-btn-primary" href="/browse">
             Browse Registry
           </Link>
-          <Link className="dash-btn dash-btn-ghost" href="/decode">
+          <Link className="dash-btn dash-btn-ghost" href="/docs">
             API Docs
           </Link>
         </div>

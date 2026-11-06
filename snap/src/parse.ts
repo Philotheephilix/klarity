@@ -22,6 +22,7 @@ export interface ParsedTx {
   contract: string | null;
   selector: string | null;
   calldata: string | null;
+  from: string | null;
 }
 
 /**
@@ -31,14 +32,22 @@ export interface ParsedTx {
  * - `selector` is the first 4 bytes of `data` (`0x` + 8 hex chars), or `null`
  *   when `data` is missing or shorter than that (a plain transfer).
  * - `calldata` is the raw `data`, or `null` when absent.
+ * - `from` is the lower-cased sender address, or `null` when absent. It is a
+ *   tx-level value (not in calldata) the panel uses to fill a `@.from` field
+ *   (e.g. a 1inch "Beneficiary" the descriptor sources from the transaction).
  */
-export function parseTx(transaction: { to?: string; data?: string }): ParsedTx {
-  const { to, data } = transaction;
+export function parseTx(transaction: {
+  to?: string;
+  data?: string;
+  from?: string;
+}): ParsedTx {
+  const { to, data, from } = transaction;
 
   const contract = to === undefined ? null : to.toLowerCase();
   const calldata = data === undefined ? null : data;
   const selector =
     data !== undefined && data.length >= 10 ? data.slice(0, 10) : null;
+  const fromAddr = from === undefined ? null : from.toLowerCase();
 
-  return { contract, selector, calldata };
+  return { contract, selector, calldata, from: fromAddr };
 }
