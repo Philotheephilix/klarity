@@ -54,6 +54,7 @@ function makeDeps(opts: {
   queryManyRows?: Record<string, unknown>[];
   nonceUsed?: Set<string>;
   deliveries?: Set<string>;
+  attester?: ServerDeps['attester'];
 } = {}) {
   const nonceUsed = opts.nonceUsed ?? new Set<string>();
   const deliveries = opts.deliveries ?? new Set<string>();
@@ -90,7 +91,7 @@ function makeDeps(opts: {
     setHash: vi.fn(),
   };
   const config = cfg(opts.wallets ?? [SIGNER_LOWER]);
-  const deps = { arkiv, github, db, config } as unknown as ServerDeps;
+  const deps = { arkiv, github, db, config, attester: opts.attester } as unknown as ServerDeps;
   return { deps, arkiv, github, db, config };
 }
 
@@ -584,6 +585,141 @@ describe('POST /descriptors — signed write', () => {
     expect(github.openDescriptorPR).toHaveBeenCalledWith(
       expect.objectContaining({ wallet: SIGNER_LOWER, action: 'create' }),
     );
+    await app.close();
+  });
+
+  it('with an EF attester: attests, patches the row with the UID, returns attested:true', async () => {
+    const descriptor = oneRecordDescriptor();
+    const ATT_UID = '0x' + 'a7'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const attest = vi.fn(async () => ({ uid: ATT_UID, attester: ATT_SIGNER }));
+    const { deps, arkiv } = makeDeps({
+      wallets: [SIGNER_LOWER],
+      attester: { attest },
+    });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 10n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      entityKey: string;
+      txHash: string;
+      prUrl: string;
+      attested: boolean;
+      attestationUID?: string;
+    };
+    expect(body.attested).toBe(true);
+    expect(body.attestationUID).toBe(ATT_UID);
+
+    // Attest is over the content hash (the subject of every attestation).
+    expect(attest).toHaveBeenCalledWith(msg.descriptorHash);
+
+    // The row is re-upserted carrying the UID + attester in WriteMeta.
+    const attestUpsert = arkiv.upsert.mock.calls.find(
+      (c) => (c[1] as { attestationUID?: string }).attestationUID === ATT_UID,
+    );
+    expect(attestUpsert).toBeDefined();
+    expect(attestUpsert![1]).toMatchObject({
+      attestationUID: ATT_UID,
+      attester: ATT_SIGNER,
+    });
+    await app.close();
+  });
+
+  it('attester throws: write still succeeds (200) with attested:false, no UID', async () => {
+    const descriptor = oneRecordDescriptor();
+    const attest = vi.fn(async () => {
+      throw new Error('EAS down');
+    });
+    const { deps } = makeDeps({ wallets: [SIGNER_LOWER], attester: { attest } });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 11n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      entityKey: string;
+      txHash: string;
+      prUrl: string;
+      attested: boolean;
+      attestationUID?: string;
+    };
+    expect(body.entityKey).toBe('0xentitykey');
+    expect(body.txHash).toBe('0xtxhash');
+    expect(body.prUrl).toBe('https://github.com/ef/registry/pull/1');
+    expect(body.attested).toBe(false);
+    expect(body.attestationUID).toBeUndefined();
+    await app.close();
+  });
+
+  it('no attester configured: write succeeds with attested:false and no attest call', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER] }); // no attester
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 12n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { attested: boolean; attestationUID?: string };
+    expect(body.attested).toBe(false);
+    expect(body.attestationUID).toBeUndefined();
+    // Only the single content upsert — no attestation patch upsert.
+    expect(arkiv.upsert).toHaveBeenCalledTimes(1);
     await app.close();
   });
 

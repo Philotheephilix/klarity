@@ -41,7 +41,7 @@ function statusForAuthError(err: AuthError): number {
  * validates the recovered `action` is in the known union AFTER.
  */
 export function registerWriteRoutes(app: FastifyInstance, deps: ServerDeps): void {
-  const { arkiv, github, db, config } = deps;
+  const { arkiv, github, db, config, attester } = deps;
 
   app.post('/descriptors', async (req, reply) => {
     const body = (req.body ?? {}) as RawWriteBody;
@@ -186,6 +186,31 @@ export function registerWriteRoutes(app: FastifyInstance, deps: ServerDeps): voi
       lastTxHash = result.txHash;
     }
 
+    // Optional EF attestation. A configured attester signs an EAS attestation
+    // over the content hash and we stamp the UID onto the mirrored row. An
+    // attestation failure MUST NOT fail the write — the descriptor is already
+    // mirrored; attestation is an additive trust signal, re-attestable later.
+    let attested = false;
+    let attestationUID: string | undefined;
+    if (attester) {
+      try {
+        const { uid, attester: efAttester } = await attester.attest(contentHash);
+        const firstRec = records[0]!;
+        const patch = await arkiv.upsert(firstRec, {
+          source: 'authorized-write',
+          authorizedBy: signer,
+          contentHash,
+          attestationUID: uid,
+          attester: efAttester,
+        });
+        lastEntityKey = patch.entityKey;
+        attested = true;
+        attestationUID = uid;
+      } catch {
+        attested = false;
+      }
+    }
+
     const path =
       typeof body.path === 'string' ? body.path : records[0]!.sourcePath;
     const prUrl = await github.openDescriptorPR({
@@ -196,7 +221,13 @@ export function registerWriteRoutes(app: FastifyInstance, deps: ServerDeps): voi
       action,
     });
 
-    return reply.send({ entityKey: lastEntityKey, txHash: lastTxHash, prUrl });
+    return reply.send({
+      entityKey: lastEntityKey,
+      txHash: lastTxHash,
+      prUrl,
+      attested,
+      ...(attestationUID !== undefined ? { attestationUID } : {}),
+    });
   });
 }
 

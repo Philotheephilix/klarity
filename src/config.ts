@@ -24,6 +24,16 @@ export interface Config {
   pollIntervalMs: number;
   dbPath: string;
   port: number;
+  /**
+   * Optional EAS attestation wiring. Present only when EAS_CHAIN_ID is set;
+   * absent ⇒ the server skips attestation entirely. Holds no secret — the
+   * signer is NOT configured here (it is the existing injected Arkiv signer),
+   * only the chain selector and an EAS RPC endpoint for reads.
+   */
+  eas?: {
+    chainId: number;
+    rpcUrl: string;
+  };
 }
 
 type Env = Record<string, string | undefined>;
@@ -82,6 +92,16 @@ export function loadConfig(env: Env = process.env): Config {
     dbPath: env.DB_PATH && env.DB_PATH.trim() !== '' ? env.DB_PATH : './klarity.db',
     port: parseIntOr(env.PORT, 3000),
   };
+
+  // EAS wiring is opt-in: only when a chain id is configured. No key is read
+  // here — the attester's signer is supplied at wire-up from the existing
+  // injected signer, never synthesized from config.
+  if (env.EAS_CHAIN_ID && env.EAS_CHAIN_ID.trim() !== '') {
+    config.eas = Object.freeze({
+      chainId: parseIntOr(env.EAS_CHAIN_ID, 0),
+      rpcUrl: env.EAS_RPC_URL ?? env.ARKIV_RPC_URL ?? '',
+    });
+  }
 
   Object.freeze(config.arkiv);
   Object.freeze(config.github);

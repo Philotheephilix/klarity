@@ -5,6 +5,7 @@ import type { ArkivClient } from './arkiv/client.js';
 import type { GitHubClient } from './github.js';
 import type { Db } from './db.js';
 import type { Config } from './config.js';
+import type { EfAttester } from './eas/attester.js';
 import { registerQueryRoutes } from './routes/query.js';
 import { registerDecodeRoute } from './routes/decode.js';
 import { registerWriteRoutes } from './routes/write.js';
@@ -20,6 +21,12 @@ export interface ServerDeps {
   github: GitHubClient;
   db: Db;
   config: Config;
+  /**
+   * Optional EF attester. When present, an authorized write is attested on-chain
+   * and the UID is stamped onto the mirrored row. Absent ⇒ writes skip
+   * attestation (no key is ever read to synthesize one).
+   */
+  attester?: EfAttester;
 }
 
 /**
