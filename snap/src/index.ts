@@ -1,10 +1,14 @@
 import {
   DialogType,
   MethodNotFoundError,
+  UserInputEventType,
+  type OnCronjobHandler,
   type OnRpcRequestHandler,
   type OnTransactionHandler,
+  type OnUserInputHandler,
 } from '@metamask/snaps-sdk';
 import type { JSXElement } from '@metamask/snaps-sdk/jsx';
+import { Box, Text } from '@metamask/snaps-sdk/jsx';
 import {
   KlarityAttester,
   KlarityClient,
@@ -19,6 +23,17 @@ import { renderInsight } from './render.js';
 import { renderRankPrompt } from './prompt.js';
 import { getApiBaseUrl, profileForChain } from './config.js';
 import { buildClaim, submitVouch, type SubmitVouchResult } from './ranking.js';
+import { parseVouchInput } from './vouch-form.js';
+import { waitForReceipt, type Receipt, type WaitOpts } from './poll.js';
+import {
+  listPending,
+  markAttempted,
+  putPending,
+  removePending,
+  snapStateDeps,
+  type PendingVouch,
+  type StateDeps,
+} from './pending.js';
 
 /**
  * Arguments passed to the transaction-insight handler, as defined by the Snaps
@@ -189,6 +204,11 @@ export async function handleRank(
     contract: params.contract,
     attester: params.account,
     interactionTxHash: params.interactionTxHash,
+    // handleRank is the legacy RPC path (removed in Task 7); its claim carries no
+    // rating/comment, so pass the benign gated defaults. The path is gated and
+    // never produces a live write while this stays.
+    rating: 0,
+    comment: '',
   });
 
   return submitVouch(descriptor, claim, {
@@ -280,4 +300,286 @@ export const onRpcRequest: OnRpcRequestHandler = async ({ request }) => {
     json.reason = result.reason;
   }
   return json;
+};
+
+/**
+ * The JSON-RPC method name carried on the scheduled background event. When a
+ * capture succeeds, `onUserInput` schedules a one-off background event whose
+ * `request.method` is this; `@metamask/snaps-sdk@10.4.0` delivers that event to
+ * `onCronjob`, which polls the pending vouch's receipt and submits when mined.
+ */
+export const POLL_METHOD = 'klarity_poll_pending';
+
+/**
+ * How long a pending vouch may stay un-submitted before the poller EVICTS it so
+ * it never polls forever. Measured from `createdAt`. A tx that never mines (or
+ * stays reverted/unprovable) past this budget is dropped on the next fire; a tx
+ * that mines-and-submits is removed immediately regardless of age.
+ *
+ * 24 hours: comfortably longer than any realistic mempool dwell, short enough
+ * that an abandoned capture does not linger indefinitely in encrypted state.
+ */
+export const MAX_PENDING_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The interaction context a captured vouch is keyed to. Supplied to
+ * {@link captureVouch} by the `onUserInput` wrapper from the interface context
+ * that `onTransaction` embedded when it rendered the capture form.
+ */
+export interface CaptureInteraction {
+  chainId: number;
+  contract: string;
+  selector: string;
+  interactionTxHash: string;
+  account: string;
+}
+
+/**
+ * Arguments to the {@link captureVouch} core.
+ *
+ * `state` is the already-read form state (production reads it via
+ * `snap_getInterfaceState`; the core takes it pre-read so it needs no Snaps
+ * runtime). `interaction` is the context the vouch is keyed to.
+ */
+export interface CaptureVouchArgs {
+  event: { type: UserInputEventType; name?: string };
+  state: { rating?: string; comment?: string };
+  interaction: CaptureInteraction;
+}
+
+/**
+ * Injectable dependencies for {@link captureVouch} — the `onUserInput`
+ * testability seam, mirroring the `RankDeps` split. Production wires
+ * `putPending` over `snap_manage_state`, `schedule` over
+ * `snap_scheduleBackgroundEvent`, and `notify` over a `snap_dialog` alert.
+ */
+export interface CaptureVouchDeps {
+  /** Persist the pending vouch (keyed by interaction tx hash). */
+  putPending: (vouch: PendingVouch) => Promise<void>;
+  /** Schedule the one-off poll background event; resolves the event id. */
+  schedule: () => Promise<string>;
+  /** Surface a native, non-throwing message to the user (parse errors). */
+  notify: (message: string) => Promise<void>;
+  /** Clock for `createdAt`; injected so tests are deterministic. */
+  now: () => number;
+}
+
+/**
+ * Capture core as an injectable pure function (no Snaps runtime, no network).
+ *
+ * Only acts on a {@link UserInputEventType.FormSubmitEvent} for the
+ * `klarity-vouch` form; any other event is ignored. On an invalid/empty input it
+ * surfaces a clear native message via `notify` and stores NOTHING — it never
+ * throws, so an empty form can never produce an unhandled rejection. On a valid
+ * input it stores a {@link PendingVouch} and schedules the poll.
+ */
+export async function captureVouch(
+  args: CaptureVouchArgs,
+  deps: CaptureVouchDeps,
+): Promise<void> {
+  const { event, state, interaction } = args;
+  if (
+    event.type !== UserInputEventType.FormSubmitEvent ||
+    event.name !== 'klarity-vouch'
+  ) {
+    return;
+  }
+
+  const parsed = parseVouchInput(state);
+  if ('error' in parsed) {
+    await deps.notify(parsed.error);
+    return;
+  }
+
+  const vouch: PendingVouch = {
+    chainId: interaction.chainId,
+    contract: interaction.contract,
+    selector: interaction.selector,
+    interactionTxHash: interaction.interactionTxHash,
+    account: interaction.account,
+    rating: parsed.rating,
+    comment: parsed.comment,
+    createdAt: deps.now(),
+  };
+
+  await deps.putPending(vouch);
+  await deps.schedule();
+}
+
+/**
+ * Injectable dependencies for {@link pollPending} — the `onCronjob` testability
+ * seam. Production wires the pending store over `snap_manage_state`, `getReceipt`
+ * + `provider` over the `ethereum` provider, the attester + profile over the
+ * chain's EAS profile, and `now` over the wall clock.
+ */
+export interface PollPendingDeps {
+  /** The pending-vouch store accessor. */
+  state: StateDeps;
+  /** Fetch a receipt for a tx hash; `null` until mined. */
+  getReceipt: (hash: string) => Promise<Receipt>;
+  /** The SDK attester bound to the chain's EAS profile. */
+  attester: KlarityAttester;
+  /** Minimal ethers-shaped provider used by `submitVouch`'s `verifyInteraction`. */
+  provider: InteractionProvider;
+  /** The EAS profile (carries the gating `publicSchemaUID`). */
+  profile: EasProfile;
+  /** Clock for the age budget. */
+  now: () => number;
+  /** Poll tuning for `waitForReceipt`. */
+  waitOpts?: WaitOpts;
+}
+
+/**
+ * Poll-and-submit core as an injectable pure function.
+ *
+ * For EACH pending vouch:
+ *   (i)   SKIP if `attemptedUid` is already set — the double-submit guard; a tx
+ *         is never attested twice even if a prior cron fire overlaps this one.
+ *   (ii)  Poll the receipt. If NOT mined: leave the entry so a later fire
+ *         retries, UNLESS `now - createdAt` exceeds {@link MAX_PENDING_AGE_MS},
+ *         in which case EVICT it so it never polls forever.
+ *   (iii) If mined: call the GATED {@link submitVouch}. The gate (empty
+ *         `publicSchemaUID` -> refusal) and the `verifyInteraction` proof (a
+ *         reverted `status 0x0` receipt fails it) both live in the SDK and are
+ *         never duplicated here. On `{ submitted: true, uid }`, `markAttempted`
+ *         THEN `removePending`. On a refusal (gated or reverted/unprovable),
+ *         leave the entry within budget / evict once past it — same policy as an
+ *         unmined tx, so a never-definitive vouch cannot linger forever.
+ */
+export async function pollPending(deps: PollPendingDeps): Promise<void> {
+  const pending = await listPending(deps.state);
+
+  for (const vouch of pending) {
+    if (vouch.attemptedUid !== undefined) {
+      continue; // (i) already attested — never resubmit
+    }
+
+    const aged = deps.now() - vouch.createdAt > MAX_PENDING_AGE_MS;
+
+    const receipt = await waitForReceipt(
+      vouch.interactionTxHash,
+      { getReceipt: deps.getReceipt },
+      deps.waitOpts,
+    );
+
+    if (!receipt.mined) {
+      // (ii) unmined: evict past the budget, otherwise leave for a later fire.
+      if (aged) {
+        await removePending(deps.state, vouch.interactionTxHash);
+      }
+      continue;
+    }
+
+    // (iii) mined: GATED submit. submitVouch never writes under an empty UID and
+    // never attests a reverted/forged interaction (verifyInteraction fails).
+    const result = await submitVouch(
+      {},
+      buildClaim({
+        contract: vouch.contract,
+        attester: vouch.account,
+        interactionTxHash: vouch.interactionTxHash,
+        rating: vouch.rating,
+        comment: vouch.comment,
+      }),
+      {
+        attester: deps.attester,
+        provider: deps.provider,
+        profile: deps.profile,
+      },
+    );
+
+    if (result.submitted && result.uid !== undefined) {
+      await markAttempted(deps.state, vouch.interactionTxHash, result.uid);
+      await removePending(deps.state, vouch.interactionTxHash);
+    } else if (aged) {
+      // Gated refusal or reverted/unprovable interaction: same eviction policy
+      // as unmined — keep within budget, drop once past it.
+      await removePending(deps.state, vouch.interactionTxHash);
+    }
+  }
+}
+
+/**
+ * User-input handler. A thin wrapper: on a `klarity-vouch` form submit it reads
+ * the form via `snap_getInterfaceState`, pulls the interaction context the
+ * insight panel embedded for this interface, and delegates to
+ * {@link captureVouch} with real deps (pending store, `snap_scheduleBackgroundEvent`
+ * scheduling, a `snap_dialog` alert for parse errors).
+ */
+export const onUserInput: OnUserInputHandler = async ({ id, event, context }) => {
+  if (
+    event.type !== UserInputEventType.FormSubmitEvent ||
+    event.name !== 'klarity-vouch'
+  ) {
+    return;
+  }
+
+  const state = (await snap.request({
+    method: 'snap_getInterfaceState',
+    params: { id },
+  })) as { rating?: string; comment?: string };
+
+  const interaction = (context ?? {}) as unknown as CaptureInteraction;
+
+  await captureVouch(
+    { event: { type: event.type, name: event.name }, state, interaction },
+    {
+      putPending: async (vouch) => putPending(snapStateDeps(), vouch),
+      schedule: async () =>
+        (await snap.request({
+          method: 'snap_scheduleBackgroundEvent',
+          params: {
+            duration: 'PT30S',
+            request: { method: POLL_METHOD },
+          },
+        })) as string,
+      notify: async (message) => {
+        await snap.request({
+          method: 'snap_dialog',
+          params: {
+            type: DialogType.Alert,
+            content: Box({ children: Text({ children: message }) }) as unknown as JSXElement,
+          },
+        });
+      },
+      now: () => Date.now(),
+    },
+  );
+};
+
+/**
+ * Cronjob handler. A thin wrapper: for the scheduled {@link POLL_METHOD} event it
+ * assembles the real {@link PollPendingDeps} (pending store over
+ * `snap_manage_state`, the `ethereum`-backed provider for both receipt reads and
+ * `verifyInteraction`, an attester + profile per chain) and delegates to
+ * {@link pollPending}. Any other method throws method-not-found.
+ *
+ * NOTE: the production profile is resolved per chain from the pending entries;
+ * here we resolve one profile up front from the first entry's chain, matching
+ * the single-chain MVP. `pollPending` itself is chain-agnostic over its deps.
+ */
+export const onCronjob: OnCronjobHandler = async ({ request }) => {
+  if (request.method !== POLL_METHOD) {
+    throw new MethodNotFoundError({ method: request.method });
+  }
+
+  const state = snapStateDeps();
+  const pending = await listPending(state);
+  if (pending.length === 0) {
+    return null;
+  }
+
+  const profile = profileForChain(pending[0].chainId);
+  const provider = ethereumInteractionProvider();
+
+  await pollPending({
+    state,
+    getReceipt: async (hash) => provider.getTransactionReceipt(hash) as Promise<Receipt>,
+    attester: new KlarityAttester({ profile }),
+    provider,
+    profile,
+    now: () => Date.now(),
+  });
+
+  return null;
 };

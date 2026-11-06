@@ -20,18 +20,25 @@ import type {
 } from '@klarity/sdk';
 
 /**
- * Shape the three address/hash inputs into an `InteractionClaim`. Pass-through
- * casing: `verifyInteraction` lower-cases internally, so no normalization here.
+ * Shape the claim inputs into an `InteractionClaim`. Pass-through casing:
+ * `verifyInteraction` lower-cases internally, so no normalization here.
+ *
+ * `rating`/`comment` are the captured vouch payload now carried on-chain through
+ * the extended public schema; they ride along on the claim unchanged.
  */
 export function buildClaim(args: {
   contract: string;
   attester: string;
   interactionTxHash: string;
+  rating: number;
+  comment: string;
 }): InteractionClaim {
   return {
     contract: args.contract,
     attester: args.attester,
     interactionTxHash: args.interactionTxHash,
+    rating: args.rating,
+    comment: args.comment,
   };
 }
 
