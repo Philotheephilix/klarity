@@ -3,6 +3,7 @@ import {
   MethodNotFoundError,
   UserInputEventType,
   type OnCronjobHandler,
+  type OnHomePageHandler,
   type OnTransactionHandler,
   type OnUserInputHandler,
 } from '@metamask/snaps-sdk';
@@ -18,6 +19,7 @@ import { parseChainId, parseTx } from './parse.js';
 import { fetchDecode, type FetchDecodeDeps } from './decode.js';
 import { fetchVerified, type FetchVerifiedDeps } from './verified.js';
 import { renderInsight } from './render.js';
+import { renderHome } from './home.js';
 import { profileForChain } from './config.js';
 import { buildClaim, submitVouch } from './ranking.js';
 import { parseVouchInput } from './vouch-form.js';
@@ -430,3 +432,12 @@ export const onCronjob: OnCronjobHandler = async ({ request }) => {
 
   return null;
 };
+
+/**
+ * Home-page handler. Renders the pending/submitted vouch dashboard when the user
+ * opens the Snap's home page in MetaMask. A thin wrapper: it reads the pending
+ * store over `snap_manageState` and delegates all layout to {@link renderHome}.
+ */
+export const onHomePage: OnHomePageHandler = async () => ({
+  content: renderHome(await listPending(snapStateDeps())),
+});

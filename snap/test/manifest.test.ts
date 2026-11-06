@@ -21,13 +21,14 @@ describe('snap.manifest.json', () => {
     source: { location: { npm: { filePath: string } } };
   };
 
-  it('declares exactly the six required initialPermissions', () => {
+  it('declares exactly the seven required initialPermissions', () => {
     const keys = Object.keys(manifest.initialPermissions).sort();
     expect(keys).toEqual(
       [
         'endowment:cronjob',
         'endowment:ethereum-provider',
         'endowment:network-access',
+        'endowment:page-home',
         'endowment:transaction-insight',
         'snap_dialog',
         'snap_manage_state',
