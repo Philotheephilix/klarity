@@ -1,0 +1,134 @@
+// Response/request types for @klarity/sdk, mirroring docs/API.md.
+// Type-only module — no runtime logic.
+
+/** A single ERC-7730 clear-signing format block (inlined on the single-descriptor route). */
+export interface FormatBlock {
+  $id?: string;
+  intent?: string;
+  fields?: FormatBlockField[];
+  [key: string]: unknown;
+}
+
+export interface FormatBlockField {
+  format?: string;
+  label?: string;
+  path?: string;
+  params?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** A descriptor row as returned by the read routes (body/bodyHash stripped). */
+export interface Descriptor {
+  $key: string;
+  chainId: number;
+  contract: string;
+  selector: string;
+  functionName?: string;
+  kind: string;
+  intent?: string;
+  entityName?: string;
+  contractName?: string;
+  owner?: string;
+  sourcePath?: string;
+  source?: string;
+  contentHash?: string;
+  schemaVersion?: string;
+  eip712PrimaryType?: string;
+  functionSignature?: string;
+  /** EF-tier attestation columns (additive; present once attested). */
+  attestationUID?: string;
+  attester?: string;
+  /** Two-tier verified block, surfaced on the single-descriptor route (Task 8). */
+  verified?: VerifiedBlock;
+}
+
+/** The single-descriptor route additionally inlines the decoded, hash-verified body. */
+export interface DescriptorWithFormatBlock extends Descriptor {
+  formatBlock?: FormatBlock;
+}
+
+/** POST /decode request — one of two input modes. */
+export interface DecodeRequestCalldata {
+  chainId: number;
+  contract: string;
+  calldata: string;
+  selector?: string;
+}
+
+export interface DecodeRequestTypedData {
+  chainId: number;
+  contract: string;
+  typedData: {
+    primaryType: string;
+    types: Record<string, Array<{ name: string; type: string }>>;
+    message?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  selector?: string;
+}
+
+export type DecodeRequest = DecodeRequestCalldata | DecodeRequestTypedData;
+
+/** The signing summary block of a /decode response. */
+export interface DecodeSigning {
+  chainId: number;
+  contract: string;
+  selector: string;
+  kind: 'calldata' | 'eip712';
+  decodedFrom: string;
+  contractName?: string;
+  functionName?: string;
+  intent?: string;
+  interpolatedIntent: string | null;
+  summary: string;
+}
+
+/** A labeled field in a /decode response (visible or hidden). */
+export interface SigningField {
+  label: string;
+  path: string;
+  format?: string;
+  hidden: boolean;
+  params?: Record<string, unknown>;
+}
+
+/** POST /decode response shape. */
+export interface DecodeResponse {
+  signing: DecodeSigning;
+  fields: SigningField[];
+  hiddenFields: SigningField[];
+  note: string;
+  raw: { calldata?: string; typedData?: unknown };
+}
+
+/** A verified public vouch (Tier 2) — an interaction-proven attestation. */
+export interface PublicVouch {
+  attester: string;
+  interactionTxHash: string;
+  attestationUID: string;
+}
+
+/** Two-tier verified block: EF gate (Tier 1) + verified public vouches (Tier 2). */
+export interface VerifiedBlock {
+  efApproved: boolean;
+  efAttester?: string;
+  efAttestationUID?: string;
+  publicVouches: number;
+  rankedAttesters: PublicVouch[];
+}
+
+/** Filters accepted by the browse route (GET /descriptors). */
+export interface BrowseFilters {
+  chainId?: number;
+  contract?: string;
+  selector?: string;
+  kind?: string;
+  intent?: string;
+  entityName?: string;
+  contractName?: string;
+  functionName?: string;
+  owner?: string;
+  sourcePath?: string;
+  source?: string;
+  eip712PrimaryType?: string;
+}
