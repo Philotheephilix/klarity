@@ -11,13 +11,15 @@ const SECTIONS: { id: Section; label: string; href: string }[] = [
 
 export function Chrome({
   section,
-  query,
+  query = '',
   onQuery,
+  search = true,
   children,
 }: {
   section: Section;
-  query: string;
-  onQuery: (next: string) => void;
+  query?: string;
+  onQuery?: (next: string) => void;
+  search?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -30,7 +32,13 @@ export function Chrome({
             </NavLink>
           ))}
         </nav>
-        <SearchBar value={query} onChange={onQuery} placeholder="Search companies, contracts, selectors" />
+        {search ? (
+          <SearchBar
+            value={query}
+            onChange={onQuery ?? (() => {})}
+            placeholder="Search companies, contracts, selectors"
+          />
+        ) : null}
       </header>
       <main className="chrome-body">{children}</main>
     </div>

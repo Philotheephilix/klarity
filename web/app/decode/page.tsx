@@ -1,14 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
 import { Chrome } from '../../components/Chrome';
 import { Card } from '../../components/Card';
 
 export default function DecodeInfoPage() {
-  const [query, setQuery] = useState('');
   return (
-    <Chrome section="decode" query={query} onQuery={setQuery}>
+    <Chrome section="decode" search={false}>
       <div className="page-head">
         <h1 className="page-title">Decode</h1>
         <p className="page-sub">

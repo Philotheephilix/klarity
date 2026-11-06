@@ -7,6 +7,7 @@ import { CallGrid } from '../../../../components/CallGrid';
 import { Chrome } from '../../../../components/Chrome';
 import { ErrorCard, LoadingCard, useAsync } from '../../../../components/States';
 import { makeApi } from '../../../../lib/config';
+import { filterCallRows } from '../../../../lib/filter';
 
 export default function CallsPage({
   params,
@@ -22,6 +23,9 @@ export default function CallsPage({
     () => makeApi().getContract(chainIdNum, address),
     [chainIdNum, address],
   );
+
+  const q = query.trim().toLowerCase();
+  const filtered = state.status === 'ready' ? filterCallRows(state.data, q) : [];
 
   return (
     <Chrome section="companies" query={query} onQuery={setQuery}>
@@ -46,7 +50,7 @@ export default function CallsPage({
       {state.status === 'error' ? <ErrorCard error={state.error} /> : null}
       {state.status === 'ready' ? (
         <CallGrid
-          rows={state.data}
+          rows={filtered}
           onSelect={(row) =>
             router.push(`/${entity}/${chainId}/${address}/${row.selector}`)
           }

@@ -7,6 +7,7 @@ import { Chrome } from '../../components/Chrome';
 import { ContractGrid } from '../../components/ContractGrid';
 import { ErrorCard, LoadingCard, useAsync } from '../../components/States';
 import { makeApi } from '../../lib/config';
+import { filterContractRows } from '../../lib/filter';
 
 export default function ContractsPage({
   params,
@@ -21,6 +22,10 @@ export default function ContractsPage({
     () => makeApi().listDescriptors({ entityName: entity }),
     [entity],
   );
+
+  const q = query.trim().toLowerCase();
+  const filtered =
+    state.status === 'ready' ? filterContractRows(state.data, q) : [];
 
   return (
     <Chrome section="companies" query={query} onQuery={setQuery}>
@@ -38,7 +43,7 @@ export default function ContractsPage({
       {state.status === 'error' ? <ErrorCard error={state.error} /> : null}
       {state.status === 'ready' ? (
         <ContractGrid
-          rows={state.data}
+          rows={filtered}
           onSelect={(chainId, contract) =>
             router.push(`/${entity}/${chainId}/${contract}`)
           }

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useState } from 'react';
+import { use } from 'react';
 import { Chrome } from '../../../../../components/Chrome';
 import { ExampleView } from '../../../../../components/ExampleView';
 import { ErrorCard, LoadingCard, useAsync } from '../../../../../components/States';
@@ -20,7 +20,6 @@ export default function ExamplePage({
   }>;
 }) {
   const { entity, chainId, address, selector } = use(params);
-  const [query, setQuery] = useState('');
   const chainIdNum = Number(chainId);
 
   const state = useAsync<{ row: DescriptorRow; decode: DecodeResponse }>(
@@ -34,7 +33,7 @@ export default function ExamplePage({
   );
 
   return (
-    <Chrome section="decode" query={query} onQuery={setQuery}>
+    <Chrome section="decode" search={false}>
       <div className="crumbs">
         <Link href="/">Companies</Link>
         <span>/</span>
