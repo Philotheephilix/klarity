@@ -7,8 +7,13 @@ import { Card } from '../../components/Card';
 export default function DecodeInfoPage() {
   return (
     <Chrome section="decode" search={false}>
+      <div className="crumbs">
+        <Link href="/">Home</Link>
+        <span>/</span>
+        <span>Decode</span>
+      </div>
       <div className="page-head">
-        <h1 className="page-title">Decode</h1>
+        <h1 className="page-title page-title-xl">Decode</h1>
         <p className="page-sub">
           The explorer contrasts a raw sample payload with its clear-signed view
           for any mirrored call.

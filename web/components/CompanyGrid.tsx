@@ -1,5 +1,4 @@
-import { Card } from './Card';
-import { MonoLabel } from './CodeBlock';
+import { RichCard } from './RichCard';
 import type { SeedEntity } from '../lib/entities';
 
 export function CompanyGrid({
@@ -12,12 +11,23 @@ export function CompanyGrid({
   return (
     <div className="card-grid">
       {entities.map((entity) => (
-        <Card key={entity.entityName} onClick={() => onSelect(entity.entityName)}>
-          <div className="card-pad">
-            <div className="card-title">{entity.displayName}</div>
-            <MonoLabel>{entity.entityName}</MonoLabel>
-          </div>
-        </Card>
+        <RichCard
+          key={entity.entityName}
+          thumbKey={entity.entityName}
+          thumbName={entity.displayName}
+          status="registry"
+          statusTone="pick"
+          bookmarkId={`company:${entity.entityName}`}
+          title={entity.displayName}
+          subtitle={entity.entityName}
+          meta={[
+            { label: 'org', value: entity.entityName },
+            { label: 'standard', value: 'ERC-7730' },
+          ]}
+          footerName={entity.displayName}
+          footerSource={`registry/${entity.entityName}`}
+          onOpen={() => onSelect(entity.entityName)}
+        />
       ))}
     </div>
   );

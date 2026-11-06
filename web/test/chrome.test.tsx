@@ -28,7 +28,7 @@ describe('Chrome', () => {
 });
 
 describe('FilterRail', () => {
-  it('renders a chip per kind and chainId and reports kind clicks', () => {
+  it('renders a chip per kind and a chainId select, and reports changes', () => {
     const onKind = vi.fn();
     const onChainId = vi.fn();
     render(
@@ -50,12 +50,17 @@ describe('FilterRail', () => {
     expect(onKind).toHaveBeenCalledWith('calldata');
 
     expect(screen.getByRole('button', { name: 'eip712' })).toBeInTheDocument();
-    const chain = screen.getByRole('button', { name: '137' });
-    fireEvent.click(chain);
+
+    const select = screen.getByLabelText('chainId');
+    expect(select).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '137' })).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: '137' } });
     expect(onChainId).toHaveBeenCalledWith(137);
   });
 
-  it('marks the active chainId chip', () => {
+  it('reflects the active chainId in the select value and reports min/max calls', () => {
+    const onMinCalls = vi.fn();
+    const onReset = vi.fn();
     render(
       <FilterRail
         chainIds={[1, 137]}
@@ -63,8 +68,19 @@ describe('FilterRail', () => {
         activeChainId={1}
         onKind={vi.fn()}
         onChainId={vi.fn()}
+        minCalls=""
+        maxCalls=""
+        onMinCalls={onMinCalls}
+        onMaxCalls={vi.fn()}
+        onReset={onReset}
       />,
     );
-    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('data-on', 'true');
+    expect(screen.getByLabelText('chainId')).toHaveValue('1');
+
+    fireEvent.change(screen.getByLabelText('min calls'), { target: { value: '3' } });
+    expect(onMinCalls).toHaveBeenCalledWith('3');
+
+    fireEvent.click(screen.getByRole('button', { name: /reset filter/i }));
+    expect(onReset).toHaveBeenCalledOnce();
   });
 });

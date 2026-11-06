@@ -35,7 +35,7 @@ export default function ExamplePage({
   return (
     <Chrome section="decode" search={false}>
       <div className="crumbs">
-        <Link href="/">Companies</Link>
+        <Link href="/">Home</Link>
         <span>/</span>
         <Link href={`/${entity}`}>{entity}</Link>
         <span>/</span>

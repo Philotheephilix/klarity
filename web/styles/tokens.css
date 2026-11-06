@@ -51,3 +51,50 @@
   --font-code: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
   --font-mono: var(--font-ui);
 }
+
+/*
+ * Light theme — same custom-property contract as the dark set, retuned for a
+ * near-white surface. Added for the explorer redesign (persisted theme toggle).
+ * The accents (--pick / --ok / --guide) are kept but darkened just enough to
+ * stay legible on light fills; --ink-rgb flips to a dark ink so the translucent
+ * `rgba(var(--ink-rgb), var(--wash))` fills become subtle grey washes.
+ */
+[data-theme='light'] {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f2f2f3;
+  --surface-3: #eaeaec;
+  --card: #ffffff;
+  --board: #f0f0f2;
+
+  --ink: #0a0a0a;
+  --ink-2: #3a3a3a;
+  --ink-3: #5a5a5a;
+  --ink-4: #7a7a7a;
+  --ink-5: #9a9a9a;
+  --on-ink: #fff;
+
+  --pick: #0a84e0;
+  --guide: #e03a66;
+  --ok: #1f9d5b;
+  --signal: #2231dd;
+  --ember: #b8431c;
+  --lock: #b0b0b0;
+
+  --ink-rgb: 17, 17, 17;
+  --elev-rgb: 255, 255, 255;
+  --surface-rgb: 255, 255, 255;
+  --shadow-rgb: 0, 0, 0;
+
+  --pane: rgba(17, 17, 17, 0.08);
+  --pane-edge: rgba(17, 17, 17, 0.12);
+  --wash: 0.04;
+
+  --solid: #0a0a0a;
+  --solid-ink: #fff;
+
+  --nav-border: rgba(17, 17, 17, 0.16);
+
+  --fill-on: #0a0a0a;
+  --fill-slab: #fff;
+}

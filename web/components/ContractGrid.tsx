@@ -1,13 +1,7 @@
-import { Card } from './Card';
-import { TagChip } from './Chip';
-import { MonoLabel } from './CodeBlock';
+import { RichCard } from './RichCard';
+import { shortAddress } from '../lib/cardmeta';
 import { groupByContract } from '../lib/group';
 import type { DescriptorRow } from '../lib/types';
-
-function shortAddress(address: string): string {
-  if (address.length <= 14) return address;
-  return `${address.slice(0, 10)}...${address.slice(-4)}`;
-}
 
 export function ContractGrid({
   rows,
@@ -21,38 +15,42 @@ export function ContractGrid({
   if (groups.length === 0) {
     return (
       <div className="card-grid">
-        <Card>
-          <div className="card-pad">
-            <div className="card-title">No mirrored contracts</div>
-            <p className="card-note">
-              No clear-signing descriptors are mirrored for this company yet.
-            </p>
-          </div>
-        </Card>
+        <div className="empty-card">
+          <div className="card-title">No mirrored contracts</div>
+          <p className="card-note">
+            No clear-signing descriptors are mirrored for this company yet.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="card-grid">
-      {groups.map((group) => (
-        <Card
-          key={`${group.chainId}:${group.contract}`}
-          onClick={() => onSelect(group.chainId, group.contract)}
-        >
-          <div className="card-pad">
-            <div className="card-title">{group.contractName || 'Unnamed contract'}</div>
-            <MonoLabel>{shortAddress(group.contract)}</MonoLabel>
-            <div className="ctx-chips">
-              <TagChip>chain {group.chainId}</TagChip>
-              {group.kinds.map((kind) => (
-                <TagChip key={kind}>{kind}</TagChip>
-              ))}
-              <TagChip>{group.selectors.length} calls</TagChip>
-            </div>
-          </div>
-        </Card>
-      ))}
+      {groups.map((group) => {
+        const first = group.selectors[0];
+        return (
+          <RichCard
+            key={`${group.chainId}:${group.contract}`}
+            thumbKey={`${group.chainId}:${group.contract}`}
+            thumbName={group.contractName || group.contract}
+            status={group.kinds.includes('eip712') ? 'eip712' : 'clear-signed'}
+            statusTone="ok"
+            bookmarkId={`contract:${group.chainId}:${group.contract}`}
+            title={group.contractName || 'Unnamed contract'}
+            subtitle={shortAddress(group.contract)}
+            meta={[
+              { label: 'chain', value: group.chainId },
+              { label: 'calls', value: group.selectors.length },
+              { label: 'kinds', value: group.kinds.join(', ') },
+              { label: 'entity', value: first?.entityName ?? '—' },
+            ]}
+            footerName={first?.entityName ?? group.contractName}
+            footerSource={first?.sourcePath ?? ''}
+            onOpen={() => onSelect(group.chainId, group.contract)}
+          />
+        );
+      })}
     </div>
   );
 }

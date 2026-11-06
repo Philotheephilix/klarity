@@ -2,8 +2,10 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { CategoryTabs } from '../components/CategoryTabs';
 import { Chrome } from '../components/Chrome';
 import { CompanyGrid } from '../components/CompanyGrid';
+import { SearchBar } from '../components/SearchBar';
 import { SEED_ENTITIES } from '../lib/entities';
 
 export default function CompaniesPage() {
@@ -19,14 +21,33 @@ export default function CompaniesPage() {
     : SEED_ENTITIES;
 
   return (
-    <Chrome section="companies" query={query} onQuery={setQuery}>
+    <Chrome section="companies" search={false}>
+      <div className="crumbs">
+        <span>Home</span>
+        <span>/</span>
+        <span>Explore</span>
+      </div>
       <div className="page-head">
-        <h1 className="page-title">Companies</h1>
+        <h1 className="page-title page-title-xl">Companies</h1>
         <p className="page-sub">
           Organizations with ERC-7730 clear-signing descriptors mirrored into
           the registry. Pick one to browse its contracts and calls.
         </p>
       </div>
+
+      <CategoryTabs
+        tabs={[{ id: 'companies', label: 'Companies', count: SEED_ENTITIES.length }]}
+        activeId="companies"
+      />
+
+      <div className="search-wide">
+        <SearchBar
+          value={query}
+          onChange={setQuery}
+          placeholder="Search companies, contracts, selectors"
+        />
+      </div>
+
       <CompanyGrid
         entities={entities}
         onSelect={(entityName) => router.push(`/${entityName}`)}

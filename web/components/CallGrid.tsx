@@ -1,6 +1,4 @@
-import { Card } from './Card';
-import { TagChip } from './Chip';
-import { MonoLabel } from './CodeBlock';
+import { RichCard } from './RichCard';
 import type { DescriptorRow } from '../lib/types';
 
 export function CallGrid({
@@ -13,12 +11,10 @@ export function CallGrid({
   if (rows.length === 0) {
     return (
       <div className="card-grid">
-        <Card>
-          <div className="card-pad">
-            <div className="card-title">No calls</div>
-            <p className="card-note">This contract has no mirrored calls.</p>
-          </div>
-        </Card>
+        <div className="empty-card">
+          <div className="card-title">No calls</div>
+          <p className="card-note">This contract has no mirrored calls.</p>
+        </div>
       </div>
     );
   }
@@ -26,16 +22,28 @@ export function CallGrid({
   return (
     <div className="card-grid">
       {rows.map((row) => (
-        <Card key={row.selector} onClick={() => onSelect(row)}>
-          <div className="card-pad">
-            <div className="card-title">{row.functionName || row.selector}</div>
-            <MonoLabel>{row.selector}</MonoLabel>
-            <p className="card-note">{row.intent}</p>
-            <div className="ctx-chips">
-              <TagChip>{row.kind}</TagChip>
-            </div>
-          </div>
-        </Card>
+        <RichCard
+          key={row.selector}
+          thumbKey={`${row.selector}:${row.contract}`}
+          thumbName={row.functionName || row.selector}
+          status={row.kind}
+          statusTone={row.kind === 'eip712' ? 'pick' : 'ok'}
+          bookmarkId={`call:${row.chainId}:${row.contract}:${row.selector}`}
+          title={row.functionName || row.selector}
+          subtitle={row.selector}
+          meta={[
+            { label: 'kind', value: row.kind },
+            { label: 'chain', value: row.chainId },
+            {
+              label: row.kind === 'eip712' ? 'primary type' : 'intent',
+              value: row.kind === 'eip712' ? row.eip712PrimaryType ?? '—' : row.intent,
+            },
+            { label: 'schema', value: `v${row.schemaVersion}` },
+          ]}
+          footerName={row.entityName}
+          footerSource={row.sourcePath}
+          onOpen={() => onSelect(row)}
+        />
       ))}
     </div>
   );

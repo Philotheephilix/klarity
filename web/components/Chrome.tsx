@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { NavLink } from './NavLink';
 import { SearchBar } from './SearchBar';
+import { ThemeToggle } from './ThemeToggle';
 
 export type Section = 'companies' | 'decode';
 
@@ -32,13 +33,16 @@ export function Chrome({
             </NavLink>
           ))}
         </nav>
-        {search ? (
-          <SearchBar
-            value={query}
-            onChange={onQuery ?? (() => {})}
-            placeholder="Search companies, contracts, selectors"
-          />
-        ) : null}
+        <div className="chrome-top-right">
+          {search ? (
+            <SearchBar
+              value={query}
+              onChange={onQuery ?? (() => {})}
+              placeholder="Search companies, contracts, selectors"
+            />
+          ) : null}
+          <ThemeToggle />
+        </div>
       </header>
       <main className="chrome-body">{children}</main>
     </div>
