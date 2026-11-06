@@ -56,7 +56,7 @@ export interface EfVerdict {
 /** Minimal ethers provider surface needed to prove an interaction tx. */
 export interface InteractionProvider {
   getTransaction(hash: string): Promise<{ to: string | null; from: string } | null>;
-  getTransactionReceipt(hash: string): Promise<{ status?: number | null } | null>;
+  getTransactionReceipt(hash: string): Promise<{ status?: number | string | null } | null>;
 }
 
 /** The 4 fields of the extended public (Tier 2) schema. */
@@ -252,8 +252,17 @@ export class KlarityAttester {
     if (!tx) return false;
     const receipt = await provider.getTransactionReceipt(claim.interactionTxHash);
     if (!receipt) return false; // unmined
-    if (receipt.status !== undefined && receipt.status !== null && receipt.status === 0) {
-      return false; // reverted
+    // EIP-1193 providers report status as a hex string ("0x0"/"0x1"), while
+    // ethers reports a number (0/1). Normalize before comparing: Number("0x0")
+    // === 0 and Number("0x1") === 1, so a reverted tx is caught in either
+    // representation. An absent status (undefined/null) is treated as success,
+    // as before — only a present, zero status rejects.
+    if (receipt.status !== undefined && receipt.status !== null) {
+      const normalizedStatus =
+        typeof receipt.status === 'string' ? Number(receipt.status) : receipt.status;
+      if (normalizedStatus === 0) {
+        return false; // reverted
+      }
     }
     if (!tx.to || tx.to.toLowerCase() !== claim.contract.toLowerCase()) return false;
     if (tx.from.toLowerCase() !== claim.attester.toLowerCase()) return false;

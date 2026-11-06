@@ -21,12 +21,17 @@ const TX_OK = '0x' + 'cc'.repeat(32);
 const TX_FORGED = '0x' + 'dd'.repeat(32);
 const TX_WRONG_TO = '0x' + 'ee'.repeat(32);
 const TX_UNMINED = '0x' + 'ff'.repeat(32);
+// EIP-1193 providers report receipt status as a hex string, not a number.
+const TX_REVERTED_HEX = '0x' + 'ab'.repeat(32); // mined but status "0x0" (reverted)
+const TX_SUCCESS_HEX = '0x' + 'cd'.repeat(32); // mined, status "0x1" (success)
 
 // A fake ethers provider: getTransaction returns a canned tx; getTransactionReceipt
-// returns a canned receipt (or null for an unmined tx).
+// returns a canned receipt (or null for an unmined tx). The receipt status may be a
+// number or an EIP-1193 hex string, per-hash via `statuses`.
 function fakeProvider(opts: {
   txs: Record<string, { to: string | null; from: string } | null>;
   mined: Set<string>;
+  statuses?: Record<string, number | string>;
 }) {
   return {
     async getTransaction(hash: string) {
@@ -34,7 +39,7 @@ function fakeProvider(opts: {
     },
     async getTransactionReceipt(hash: string) {
       if (!opts.mined.has(hash)) return null;
-      return { status: 1 };
+      return { status: opts.statuses?.[hash] ?? 1 };
     },
   };
 }
@@ -45,8 +50,14 @@ const provider = fakeProvider({
     [TX_FORGED]: { to: CONTRACT, from: ATTESTER_B }, // from != claimed attester A
     [TX_WRONG_TO]: { to: '0x000000000000000000000000000000000000dead', from: ATTESTER_A },
     [TX_UNMINED]: { to: CONTRACT, from: ATTESTER_A },
+    [TX_REVERTED_HEX]: { to: CONTRACT, from: ATTESTER_A },
+    [TX_SUCCESS_HEX]: { to: CONTRACT, from: ATTESTER_A },
   },
-  mined: new Set([TX_OK, TX_FORGED, TX_WRONG_TO]), // TX_UNMINED has no receipt
+  mined: new Set([TX_OK, TX_FORGED, TX_WRONG_TO, TX_REVERTED_HEX, TX_SUCCESS_HEX]), // TX_UNMINED has no receipt
+  statuses: {
+    [TX_REVERTED_HEX]: '0x0', // reverted, reported as hex string
+    [TX_SUCCESS_HEX]: '0x1', // success, reported as hex string
+  },
 });
 
 function publicAttestation(over: Partial<Attestation>): Attestation {
@@ -226,6 +237,28 @@ describe('KlarityAttester.verifyPublic + verifyDescriptor', () => {
     expect(r.publicVouches).toBe(1);
     expect(r.rankedAttesters).toHaveLength(1);
     expect(r.rankedAttesters[0].attester.toLowerCase()).toBe(ATTESTER_A);
+  });
+
+  it('excludes a vouch whose interaction tx reverted (status "0x0"), counts an otherwise-identical one that succeeded (status "0x1")', async () => {
+    // Both vouches are otherwise FULLY valid: mined, to==CONTRACT, from==attester,
+    // matching descriptorHash, matching chainId. The ONLY discriminator is the
+    // receipt status reported as an EIP-1193 hex string. A reverted tx ("0x0")
+    // must be excluded; a successful one ("0x1") must be counted. This proves the
+    // status check discriminates revert from success rather than rejecting all.
+    const revertOnly = attesterWith([
+      publicAttestation({ attester: ATTESTER_A, data: pubData(ATTESTER_A, TX_REVERTED_HEX), uid: '0x' + 'd1'.repeat(32) }),
+    ]);
+    const rRevert = await revertOnly.verifyPublic(DESCRIPTOR, { provider });
+    expect(rRevert.publicVouches).toBe(0);
+    expect(rRevert.rankedAttesters).toHaveLength(0);
+
+    const successOnly = attesterWith([
+      publicAttestation({ attester: ATTESTER_A, data: pubData(ATTESTER_A, TX_SUCCESS_HEX), uid: '0x' + 'd2'.repeat(32) }),
+    ]);
+    const rSuccess = await successOnly.verifyPublic(DESCRIPTOR, { provider });
+    expect(rSuccess.publicVouches).toBe(1);
+    expect(rSuccess.rankedAttesters).toHaveLength(1);
+    expect(rSuccess.rankedAttesters[0].attester.toLowerCase()).toBe(ATTESTER_A);
   });
 
   it('verifyEf returns not-approved when efSchemaUID is empty (unregistered chain)', async () => {
