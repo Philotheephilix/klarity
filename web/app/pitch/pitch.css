@@ -208,7 +208,7 @@
 .pitch-decode-body {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   padding: 18px 16px;
 }
@@ -218,10 +218,13 @@
   max-height: 120px;
   color: var(--ink-5);
   opacity: 0.7;
+  margin: 0;
+  align-self: center;
 }
 .pitch-decode-arrow {
   width: 34px;
   height: 20px;
+  align-self: center;
 }
 .pitch-decode-arrow-line {
   stroke-dasharray: 1;
@@ -232,6 +235,7 @@
   color: var(--ink);
   line-height: 1.4;
   text-align: left;
+  align-self: center;
 }
 .pitch-decode-sentence strong {
   color: var(--accent);
@@ -239,6 +243,42 @@
 .pitch-decode-to {
   font-size: 0.85rem;
   color: var(--ink-3);
+}
+/* Multi-field swap decode: a tight label/value list so the rich intent
+ * (pay / receive / to / before) contrasts hard with the opaque hex blob. */
+.pitch-decode-fields {
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pitch-decode-field {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pitch-decode-field:last-child {
+  border-bottom: none;
+}
+.pitch-decode-field dt {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  margin: 0;
+}
+.pitch-decode-field dd {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--ink);
+  text-align: right;
+}
+.pitch-decode-field dd strong {
+  color: var(--accent);
 }
 /* slide-to-sign control — resting end-state: filled + "Signed" + knob at end */
 .pitch-swipe {

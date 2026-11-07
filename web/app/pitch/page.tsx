@@ -35,28 +35,43 @@ const BEATS = [
  * padded out to a dense multi-line blob — illustrative, not a live fixture.
  */
 const CALLDATA = [
-  '0x095ea7b3000000000000000000000000',
+  '0x3593564c000000000000000000000000', // execute(bytes,bytes[],uint256) selector
+  '0000000000000000000000000000000060',
+  '00000000000000000000000000000000a0',
+  '0000000000000000000000006512aef00c',
+  '0000000000000000000000000000000002',
+  '0a08060000000000000000000000000000',
+  'b4c4f3a0c6f1d2e3b5a697887766554433',
+  '221100ffeeddccbbaa99887766554433',
   '1f9840a85d5af5bf1d1762f925bdaddc',
-  '4201f984ffffffffffffffffffffffff',
-  'ffffffffffffffffffffffffffffffff',
-  'ffffffff00000000000000000000000c',
-  '02aaa39b223fe8d0a0e5c4f27ead9083',
-  'c756cc2000000000000000000000000d',
-  '8ec3f9c4e2a3b17f0b2c6a1e7d5f9043',
-  '6e1a2b3c4d5e6f708192a3b4c5d6e7f8',
-  '09112233445566778899aabbccddeeff',
-  '00000000000000000000000000000001',
-  'a0b1c2d3e4f5061728394a5b6c7d8e9f',
+  '4201f984000000000000000000000000',
+  'a0b86991c6218b36c1d19d4a2e9eb0ce',
+  '3606eb48000000000000000000000000',
+  '00000000000000000000000003b9aca0',
+  '00000000000000000000000000000000',
+  '0000000000000000000000000470de4d',
+  'f820000000000000000000000000d8ec',
+  '3f9c4e2a3b17f0b2c6a1e7d5f90436e1',
+  'a2b3c4d5e6f708192a3b4c5d6e7f8091',
+  '00000000000000000000000000000000',
+  '0000000000000000000000006512b0a4',
 ].join('');
 
 // Break the blob into fixed-width mono words for a terminal-style byte wall.
 const CALLDATA_WORDS = (CALLDATA.replace(/^0x/, '').match(/.{1,8}/g) ?? []).map(
   (w, i) => (i === 0 ? `0x${w}` : w),
 );
-const DECODED_SENTENCE = {
-  action: 'Approve',
-  amount: '1,000 USDC',
-  spender: '0x1f98…a984',
+
+// The SAME calldata above, decoded. A Uniswap Universal Router `execute` swap —
+// a rich multi-field intent, so the contrast with the opaque blob is stark.
+const DECODED_SWAP = {
+  action: 'Swap on Uniswap',
+  fields: [
+    { label: 'Pay', value: '1,000 USDC' },
+    { label: 'Receive (min)', value: '0.318 ETH' },
+    { label: 'To', value: '0xd8ec…6e1a' },
+    { label: 'Before', value: '14:32 UTC' },
+  ],
 };
 
 export default function PitchPage() {
@@ -353,12 +368,21 @@ function DecodeSvg() {
             <path d="M28 6 l7 6 -7 6" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <div className="pitch-decode-sentence">
-            <span className="pitch-sentence-lead">{DECODED_SENTENCE.action}</span>{' '}
-            <strong>{DECODED_SENTENCE.amount}</strong>
-            <br />
-            <span className="pitch-decode-to">
-              to <MonoLabel>{DECODED_SENTENCE.spender}</MonoLabel>
-            </span>
+            <span className="pitch-sentence-lead">{DECODED_SWAP.action}</span>
+            <dl className="pitch-decode-fields">
+              {DECODED_SWAP.fields.map((f) => (
+                <div className="pitch-decode-field" key={f.label}>
+                  <dt>{f.label}</dt>
+                  <dd>
+                    {/^0x/.test(f.value) ? (
+                      <MonoLabel>{f.value}</MonoLabel>
+                    ) : (
+                      <strong>{f.value}</strong>
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </div>
         {/* slide-to-sign: track + fill + knob; label swaps at completion */}
