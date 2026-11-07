@@ -20,12 +20,15 @@ import { MonoLabel } from '../../components/CodeBlock';
  */
 
 const BEATS = [
-  { id: 'intent', label: '01' },
-  { id: 'decode', label: '02' },
-  { id: 'single', label: '03' },
-  { id: 'blind', label: '04' },
-  { id: 'arkiv', label: '05' },
-  { id: 'trust', label: '06' },
+  { id: 'wallet', label: '01' },
+  { id: 'anon', label: '02' },
+  { id: 'unstoppable', label: '03' },
+  { id: 'intent', label: '04' },
+  { id: 'decode', label: '05' },
+  { id: 'single', label: '06' },
+  { id: 'blind', label: '07' },
+  { id: 'arkiv', label: '08' },
+  { id: 'trust', label: '09' },
 ] as const;
 
 /*
@@ -172,12 +175,57 @@ export default function PitchPage() {
   return (
     <div className="pitch-root">
       <div className="pitch-deck" ref={deckRef}>
-        {/* Beat 1 — This is what you actually sign (opaque raw calldata) */}
+        {/* Beat 1 — The wallet: UI served on-chain, not from a website */}
         <section
           ref={setSlideRef(0)}
           className="pitch-slide"
-          data-beat="intent"
+          data-beat="wallet"
           data-active={active === 0}
+          aria-label="A wallet whose interface is served on-chain, with clear-signing built in"
+        >
+          <div className="pitch-stage">
+            <TagChip>ERC-8244</TagChip>
+            <h2 className="pitch-head">A wallet, not a website.</h2>
+            <WalletSvg />
+          </div>
+        </section>
+
+        {/* Beat 2 — Anonymous RPC: reads nobody can trace */}
+        <section
+          ref={setSlideRef(1)}
+          className="pitch-slide"
+          data-beat="anon"
+          data-active={active === 1}
+          aria-label="Reads are anonymized through a hash-pinned sandboxed worker"
+        >
+          <div className="pitch-stage">
+            <TagChip>anon-rpc</TagChip>
+            <h2 className="pitch-head">Reads nobody can trace.</h2>
+            <AnonSvg />
+          </div>
+        </section>
+
+        {/* Beat 3 — No servers, nothing to seize or censor */}
+        <section
+          ref={setSlideRef(2)}
+          className="pitch-slide"
+          data-beat="unstoppable"
+          data-active={active === 2}
+          aria-label="Served via ENS and IPFS with no servers to seize or censor"
+        >
+          <div className="pitch-stage">
+            <TagChip>ENS · IPFS</TagChip>
+            <h2 className="pitch-head">No servers. No off switch.</h2>
+            <UnstoppableSvg />
+          </div>
+        </section>
+
+        {/* Beat 4 — This is what you actually sign (opaque raw calldata) */}
+        <section
+          ref={setSlideRef(3)}
+          className="pitch-slide"
+          data-beat="intent"
+          data-active={active === 3}
           aria-label="Opaque raw calldata is what a user actually signs"
         >
           <div className="pitch-stage">
@@ -187,12 +235,12 @@ export default function PitchPage() {
           </div>
         </section>
 
-        {/* Beat 2 — Decoded. Safe to sign. (same calldata, resolved) */}
+        {/* Beat 5 — Decoded. Safe to sign. (same calldata, resolved) */}
         <section
-          ref={setSlideRef(1)}
+          ref={setSlideRef(4)}
           className="pitch-slide"
           data-beat="decode"
-          data-active={active === 1}
+          data-active={active === 4}
           aria-label="The same calldata decoded into a readable sentence, safe to sign"
         >
           <div className="pitch-stage">
@@ -202,12 +250,12 @@ export default function PitchPage() {
           </div>
         </section>
 
-        {/* Beat 3 — One registry. One host. */}
+        {/* Beat 6 — One registry. One host. */}
         <section
-          ref={setSlideRef(2)}
+          ref={setSlideRef(5)}
           className="pitch-slide"
           data-beat="single"
-          data-active={active === 2}
+          data-active={active === 5}
           aria-label="One registry served from one host"
         >
           <div className="pitch-stage">
@@ -217,12 +265,12 @@ export default function PitchPage() {
           </div>
         </section>
 
-        {/* Beat 4 — GitHub drops. Wallets go blind. */}
+        {/* Beat 7 — GitHub drops. Wallets go blind. */}
         <section
-          ref={setSlideRef(3)}
+          ref={setSlideRef(6)}
           className="pitch-slide"
           data-beat="blind"
-          data-active={active === 3}
+          data-active={active === 6}
           aria-label="When GitHub drops, wallets fall back to blind signing"
         >
           <div className="pitch-stage">
@@ -232,12 +280,12 @@ export default function PitchPage() {
           </div>
         </section>
 
-        {/* Beat 5 — Arkiv: always-available, un-takedownable */}
+        {/* Beat 8 — Arkiv: always-available, un-takedownable */}
         <section
-          ref={setSlideRef(4)}
+          ref={setSlideRef(7)}
           className="pitch-slide"
           data-beat="arkiv"
-          data-active={active === 4}
+          data-active={active === 7}
           aria-label="Klarity replicates the registry across Arkiv nodes so links stay available"
         >
           <div className="pitch-stage">
@@ -247,12 +295,12 @@ export default function PitchPage() {
           </div>
         </section>
 
-        {/* Beat 6 — Attested. Ranked by trust. */}
+        {/* Beat 9 — Attested. Ranked by trust. */}
         <section
-          ref={setSlideRef(5)}
+          ref={setSlideRef(8)}
           className="pitch-slide"
           data-beat="trust"
-          data-active={active === 5}
+          data-active={active === 8}
           aria-label="Descriptors carry attestations and rank by verified trust"
         >
           <div className="pitch-stage">
@@ -585,6 +633,99 @@ function TrustSvg() {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Beat — A wallet, not a website. The UI is served by the contract itself
+ * (ERC-8244 html()), fetched over the same RPC the wallet trusts — no frontend
+ * host to phish.
+ * ------------------------------------------------------------------------- */
+function WalletSvg() {
+  return (
+    <div className="pitch-svg-wrap">
+      <div className="pitch-chain" aria-hidden="true">
+        <span className="pitch-chain-node pitch-chain-contract">
+          <MonoLabel>html()</MonoLabel>
+        </span>
+        <span className="pitch-chain-link" />
+        <span className="pitch-chain-node pitch-chain-wallet">
+          <span className="pitch-wallet-bar">
+            <span className="pitch-wallet-dot" />
+            <span className="pitch-wallet-title">Klarity Wallet</span>
+          </span>
+          <span className="pitch-wallet-ui">
+            <span className="pitch-ui-line" />
+            <span className="pitch-ui-line pitch-ui-line-sm" />
+            <span className="pitch-ui-pill">Swap 1,000 USDC → ETH</span>
+          </span>
+        </span>
+      </div>
+      <p className="pitch-caption">
+        <MonoLabel>UI served on-chain · no frontend to phish</MonoLabel>
+      </p>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Beat — Reads nobody can trace. RPC goes through a hash-pinned worker in a
+ * null-origin sandbox; the user's IP is unlinked from the request.
+ * ------------------------------------------------------------------------- */
+function AnonSvg() {
+  return (
+    <div className="pitch-svg-wrap">
+      <div className="pitch-anon" aria-hidden="true">
+        <span className="pitch-anon-node">You</span>
+        <span className="pitch-anon-box">
+          <span className="pitch-anon-shield">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 2 L20 5 V11 C20 16 16.5 19.5 12 22 C7.5 19.5 4 16 4 11 V5 Z" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" fill="none" />
+              <path className="pitch-tick-path" d="M8.5 12 l2.5 2.5 L15.5 9.5" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          </span>
+          <MonoLabel>hash-pinned worker</MonoLabel>
+        </span>
+        <span className="pitch-anon-node">Chain</span>
+      </div>
+      <p className="pitch-caption">
+        <MonoLabel>IP unlinked · sandboxed · content-addressed</MonoLabel>
+      </p>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Beat — No servers. No off switch. Resolved via ENS → IPFS; nothing to seize,
+ * poison, or censor. The uncensorable close.
+ * ------------------------------------------------------------------------- */
+function UnstoppableSvg() {
+  const rails = [
+    { k: 'ENS', v: 'klarity.eth' },
+    { k: 'IPFS', v: 'ipfs://…' },
+    { k: 'anon-rpc', v: 'keccak-pinned' },
+    { k: 'ERC-8244', v: 'on-chain UI' },
+  ];
+  return (
+    <div className="pitch-svg-wrap">
+      <ul className="pitch-pillars" aria-label="Decentralized building blocks, no central host">
+        {rails.map((r, i) => (
+          <li
+            key={r.k}
+            className="pitch-pillar"
+            style={{ ['--i' as string]: i }}
+          >
+            <span className="pitch-pillar-k">
+              <MonoLabel>{r.k}</MonoLabel>
+            </span>
+            <span className="pitch-pillar-v">{r.v}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="pitch-caption pitch-caption-strong">
+        No backend. No server. Nothing to take down.
+      </p>
     </div>
   );
 }

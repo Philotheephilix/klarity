@@ -635,3 +635,133 @@
     scroll-behavior: auto;
   }
 }
+
+/* ---- Wallet pivot beats (wallet / anon / unstoppable) -------------------- */
+.pitch-caption {
+  margin: 14px 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  text-align: center;
+}
+.pitch-caption-strong {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+/* Beat: A wallet, not a website — contract --(html())--> wallet frame */
+.pitch-chain {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: min(560px, 90vw);
+}
+.pitch-chain-node {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+.pitch-chain-contract {
+  padding: 18px 14px;
+  background: var(--surface-2);
+  border-color: var(--accent-edge);
+}
+.pitch-chain-link {
+  flex: 0 0 56px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-edge), var(--accent));
+}
+.pitch-chain-wallet {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.pitch-wallet-ui {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.pitch-ui-line {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(var(--ink-rgb), 0.14);
+}
+.pitch-ui-line-sm { width: 60%; }
+.pitch-ui-pill {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-edge);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+/* Beat: Reads nobody can trace — You -> [hash-pinned worker] -> Chain */
+.pitch-anon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: min(600px, 92vw);
+  flex-wrap: wrap;
+}
+.pitch-anon-node {
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+.pitch-anon-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.pitch-anon-shield { display: inline-flex; }
+
+/* Beat: No servers — four decentralized rails as framed cells */
+.pitch-pillars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  width: min(560px, 92vw);
+}
+.pitch-pillar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.pitch-pillar-k {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+.pitch-pillar-v {
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+@media (max-width: 560px) {
+  .pitch-pillars { grid-template-columns: 1fr; }
+  .pitch-chain { flex-direction: column; }
+  .pitch-chain-link { width: 2px; height: 32px; flex-basis: 32px; }
+}
