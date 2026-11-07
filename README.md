@@ -2,6 +2,24 @@
 
 **Decentralized, always-available clear-signing data for Ethereum — because wallet security should not depend on GitHub's uptime.**
 
+## 🚀 Live deployment
+
+| What | URL |
+|------|-----|
+| **Explorer** (browse + author descriptors, decode view, pitch) | **https://klarity-explorer.vercel.app** |
+| **Snap installer** (one-click install into MetaMask Flask) | **https://klarity-installer.vercel.app** |
+| **MetaMask Snap** (published, live backend baked in) | **`npm:@philotheephilix/klarity-snap`** — [npm](https://www.npmjs.com/package/@philotheephilix/klarity-snap) |
+| **Read / decode API** (queryable registry mirror) | **https://mcp.philotheephilix.in/mumbai/klarity-api** |
+| **Pitch deck** | **https://klarity-explorer.vercel.app/pitch** |
+
+Quick check the API is live:
+
+```bash
+curl "https://mcp.philotheephilix.in/mumbai/klarity-api/descriptors?entityName=aave"
+```
+
+See [Deployment](#deployment) for how each piece is hosted.
+
 ## Why this exists
 
 When a wallet shows you *"Approve unlimited USDC to 0x1f98…"* instead of a wall of
@@ -178,6 +196,54 @@ safe. See `.env.example` for the full config surface and the HTTP server options
 The backfill is batched with a small concurrency pool (8 files in flight) so it can
 chew through the ~740 emit descriptors / ~16.4k entities without overwhelming the
 Arkiv writer.
+
+## Deployment
+
+Klarity ships as four independently-hosted pieces. The table in
+[Live deployment](#-live-deployment) has every public URL.
+
+| Piece | Source | Hosted on | How |
+|-------|--------|-----------|-----|
+| **API server** | `src/` (Fastify read/decode + signed-write) | Self-hosted Docker on a Tailscale workstation (OCI ARM, Mumbai), public via a Caddy reverse proxy at `mcp.philotheephilix.in` | `docker compose up -d` behind Caddy `handle_path /mumbai/klarity-api/*` → `klarity-api:3000` |
+| **Explorer** | `web/` (Next.js 15 / React 19) | Vercel (`klarity-explorer`) | `vercel --prod`; `NEXT_PUBLIC_KLARITY_API_BASE` → the live API |
+| **Snap installer** | `snap/.scratch/connect.html` (static page) | Vercel (`klarity-installer`) | static deploy; `SNAP_ID = npm:@philotheephilix/klarity-snap` |
+| **MetaMask Snap** | `snap/` (`mm-snap build` → `dist/bundle.js`) | npm registry | `npm publish --access public`; the live API URL is baked into the bundle |
+
+### API server (Docker + Caddy)
+
+The API is containerized from the repo's `Dockerfile` (two-stage Node 22 build →
+`node dist/server.js`) and runs on the workstation's shared Docker network so the
+existing Caddy ingress can reach it by name. Caddy terminates TLS (Let's Encrypt)
+for `mcp.philotheephilix.in` and routes a path prefix to the container:
+
+```
+# Caddyfile (inside the mcp.philotheephilix.in site block)
+handle_path /mumbai/klarity-api/* {
+    reverse_proxy klarity-api:3000
+    encode zstd gzip
+}
+```
+
+`handle_path` strips the `/mumbai/klarity-api` prefix, so the app's own routes
+(`/decode`, `/descriptors`, …) resolve unchanged. The container reads its
+`ARKIV_*` / `GITHUB_*` config from a `.env` placed on the host (never committed),
+and `docker compose` restarts it `unless-stopped`.
+
+### Explorer (Vercel)
+
+`web/` is a standard Next.js app. The browser talks to the API through the
+same-origin `/klarity-api` rewrite (see `web/next.config.mjs`), with
+`NEXT_PUBLIC_KLARITY_API_BASE` set on the Vercel project to the live API URL, so
+no CORS and no hardcoded origin in the client.
+
+### Snap + installer
+
+`npm run build` in `snap/` compiles the Snap and writes `dist/bundle.js` with the
+live API URL baked in (`src/config.ts`); `mm-snap` keeps the manifest `shasum` in
+sync. It is published to npm as `@philotheephilix/klarity-snap` (a `files`
+allowlist ships only `dist/bundle.js`, `images/`, and the manifest). The installer
+is a one-file static page that calls `wallet_requestSnaps({ 'npm:@philotheephilix/klarity-snap': {} })`
+— open it in a browser with **MetaMask Flask** installed and approve the dialog.
 
 ## Upstream registry & license
 
