@@ -1,14 +1,46 @@
 # Klarity
 
-Klarity mirrors the Ledger [ERC-7730 clear-signing registry](https://github.com/LedgerHQ/clear-signing-erc7730-registry)
-into [Arkiv](https://arkiv.network) as queryable on-chain entities. It walks every
-descriptor in the registry, resolves `includes` fragments and `$ref` pointers into
-self-contained records, flattens each descriptor into one entity per
-`(chainId, contract, selector)`, and upserts them onto the Rabdi testnet — then
-keeps the mirror fresh with an incremental GitHub sync loop and serves the result
-over a small read API. The payoff: a wallet can look up "what does this calldata /
-EIP-712 payload mean" by `(chainId, contract, selector)` in a single Arkiv query
-instead of cloning and parsing the whole registry.
+**Decentralized, always-available clear-signing data for Ethereum — because wallet security should not depend on GitHub's uptime.**
+
+## Why this exists
+
+When a wallet shows you *"Approve unlimited USDC to 0x1f98…"* instead of a wall of
+hex, it is reading a **clear-signing descriptor** defined by
+[ERC-7730](https://eips.ethereum.org/EIPS/eip-7730). Those descriptors are what
+stand between a user and **blind signing** — the single largest vector for drained
+wallets. If the wallet can't fetch the descriptor at signing time, it does not
+stop; it falls back to showing raw hex and asks the user to sign anyway, at the
+exact moment an attacker's phishing calldata is in front of them.
+
+Today that security-critical dataset lives in **one GitHub repo**, and GitHub goes
+down — routinely. GitHub's own status history shows multiple incidents touching
+Git Operations and the API in a typical two-week window (including a **~7.5-hour**
+Git Operations degradation on Nov 3, 2026). Centralizing a wallet-security dataset
+behind a single host is a systemic risk: one provider's bad afternoon degrades the
+security posture of every dependent wallet at once.
+
+**Klarity mirrors the ERC-7730 clear-signing registry into
+[Arkiv](https://arkiv.network)** — a decentralized, queryable data substrate — as
+on-chain entities keyed by `(chainId, contract, selector)`. The data becomes
+always-on, censorship-resistant, provenance-verifiable, and directly queryable by
+anyone, with no single host to take it down and no repo to clone and parse. Each
+entity can also carry attestation/reputation signals, so consumers can *rank*
+descriptors by verified trust instead of trusting a flat list — a trust model that
+only makes sense on a decentralized, attestable substrate.
+
+See the judged write-ups in [`arkiv/`](arkiv/): [reach](arkiv/reach.md),
+[why Arkiv](arkiv/why-arkiv.md), [data quality](arkiv/data-quality.md),
+[Arkiv feedback](arkiv/friction.md), and the [schema reference](arkiv/schema.md).
+
+## How it works
+
+Klarity walks every descriptor in the registry, resolves `includes` fragments and
+`$ref` pointers into self-contained records, flattens each descriptor into one
+entity per `(chainId, contract, selector)`, and upserts them onto the Rabdi
+testnet — then keeps the mirror fresh with an incremental GitHub sync loop and
+serves the result over a small read API. The payoff: a wallet can look up "what
+does this calldata / EIP-712 payload mean" by `(chainId, contract, selector)` in a
+single Arkiv query instead of cloning and parsing the whole registry.
 
 ## Service wallet (writer of all entities)
 
@@ -25,11 +57,14 @@ any other key are never returned.
 ## Query examples
 
 Each entity carries the indexed attributes `chainId`, `contract`, `selector`,
-`functionName`, `functionSignature`, `kind` (`calldata` | `eip712`), `intent`,
-`entityName`, `contractName`, `owner`, `sourcePath`, `source`, `eip712PrimaryType`
-(plus a non-indexed `contentHash` and `schemaVersion`). The headline lookup is by
+`functionName`, `kind` (`calldata` | `eip712`), `intent`, `entityName`,
+`contractName`, `owner`, `sourcePath`, `source`, `authorizedBy`,
+`eip712PrimaryType`, `attestationUID`, and `attester` (plus the non-indexed
+`contentHash`, `body`, `bodyHash`, and `schemaVersion`). The headline lookup is by
 `(chainId, contract, selector)` — `selector` is the 4-byte calldata selector (or
-the EIP-712 primary-type typeHash prefix) as a `0x…` hex string.
+the EIP-712 primary-type typeHash prefix) stored as a `0x…` hex **string** so it
+is indexable (the SDK cannot index a `bytes` column — see
+[`arkiv/friction.md`](arkiv/friction.md)).
 
 ### Via the Arkiv SDK
 
@@ -146,10 +181,13 @@ Arkiv writer.
 
 ## Upstream registry & license
 
-Descriptors are sourced from the Ledger ERC-7730 registry:
-<https://github.com/LedgerHQ/clear-signing-erc7730-registry>. That registry's
-descriptor content is published under **CC0** (public domain dedication); Klarity
-mirrors it verbatim (normalized into entities) and adds only provenance metadata.
+Descriptors are sourced from the ERC-7730 clear-signing registry, originated by
+Ledger at <https://github.com/LedgerHQ/clear-signing-erc7730-registry> and also
+mirrored under the Ethereum org at
+<https://github.com/ethereum/clear-signing-erc7730-registry>. That registry's
+descriptor content is published under **CC0-1.0** (public-domain dedication);
+Klarity mirrors it verbatim (normalized into entities) and adds only provenance
+metadata.
 
 ## AI-usage disclosure
 

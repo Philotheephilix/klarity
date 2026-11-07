@@ -34,23 +34,33 @@ formats (e.g. EIP-2612 permit) become real entities.
 
 ### Attributes (indexed = queryable columns)
 
+> Indexing note: the installed SDK cannot index a `bytes` column
+> (`IndexableValue = Exclude<ArkivValue, BytesValue>`). So `selector` is stored as
+> an indexed **`str`** holding its `0x…` hex (queryable), and `contentHash` is a
+> non-indexed, read-back-only `bytes` blob. There is **no** `functionSignature`
+> column — the canonical signature lives inside the stored body. See
+> `src/arkiv/schema.ts` for the authoritative definition and `friction.md` item 2.
+
 | Attribute | Type | Indexed | Meaning |
 |---|---|---|---|
 | `chainId` | `u64` | ✅ | EVM chain of the contract (1, 10, 8453, 42161, …) |
 | `contract` | `addr` | ✅ | Contract address, lowercased |
-| `selector` | `bytes` | ✅ | 4-byte function selector `keccak256(canonicalSig)[0:4]` (calldata) |
-| `functionName` | `str` | ✅ | Canonical name, e.g. `depositETH` |
-| `functionSignature` | `str` | ✅ | Full sig key, e.g. `depositETH(address,address,uint16)` |
+| `selector` | `str` | ✅ | 4-byte selector `keccak256(canonicalSig)[0:4]` as `0x…` hex (calldata) |
+| `functionName` | `str` | ✅ opt | Canonical name, e.g. `depositETH` (omitted if over the 128-byte str cap) |
 | `kind` | `str` | ✅ | `calldata` or `eip712` |
 | `intent` | `str` | ✅ | Human action, e.g. `Supply`, `Repay loan` |
 | `entityName` | `str` | ✅ | Submitting org / registry dir, e.g. `aave` |
 | `contractName` | `str` | ✅ | e.g. `WrappedTokenGatewayV3` |
 | `owner` | `str` | ✅ | Descriptor `metadata.owner`, e.g. `Aave DAO` |
 | `sourcePath` | `str` | ✅ | `registry/aave/calldata-WrappedTokenGatewayV3.json` |
-| `authorizedBy` | `addr` | ✅ | EF wallet that authorized the write (provenance) |
+| `authorizedBy` | `addr` | ✅ opt | EF wallet that authorized the write (provenance) |
 | `source` | `str` | ✅ | `github-sync` or `authorized-write` |
-| `contentHash` | `bytes32` | ✅ | RFC 8785 canonical **keccak256** of the full descriptor (loop guard; same hash the EIP-712 signature binds to) |
 | `eip712PrimaryType` | `str` | ✅ opt | EIP-712 primary type (eip712 kind only) |
+| `attestationUID` | `str` | ✅ opt | EAS EF-gate attestation UID bound to this row (`0x…64hex`) |
+| `attester` | `addr` | ✅ opt | On-chain attester that produced the attestation |
+| `contentHash` | `bytes` | — | canonical **keccak256** of the full descriptor (loop guard; the EIP-712 signature binds to it) |
+| `body` | `bytes` | — | the full canonical ERC-7730 `format` block, stored verbatim as UTF-8 JSON |
+| `bodyHash` | `str` | — | canonical keccak256 of `body` (integrity check) |
 | `schemaVersion` | `str` | — | `$schema` version the descriptor targets |
 
 ### Payload (the body, not indexed)
@@ -95,7 +105,9 @@ removal PR.
 
 `createEntity` requires an expiration. Registry entries are long-lived:
 
-- Default `ExpirationTime.fromDays(365)` per entity.
+- Per entity `ExpirationTime.fromDays(180)` — the longest practical lifetime under
+  the Rabdi engine's `MAX_LIFETIME` cap (~182 days). A nominal 365-day lifetime is
+  refused on-chain (see `friction.md` item 1).
 - Every sync pass that touches an entity **re-extends** it, so actively-mirrored
   data never lapses. Stale entries (descriptor deleted upstream) are allowed to
   expire, or explicitly `deleteEntity`'d when a `removed` file is seen.
@@ -116,7 +128,7 @@ const { entities } = await client
   .where(
     eq("chainId", u64(1n)),
     eq("contract", addr("0xd01607c3c5ecaba394d8be377a08590149325722")),
-    eq("selector", bytes("0x474cf53d")),
+    eq("selector", str("0x474cf53d")),
   )
   .createdBy(REGISTRY_WALLET)
   .fetch()
@@ -137,7 +149,7 @@ const format = entities[0]?.toJson()   // ERC-7730 format block
 **Equivalent JSON-RPC (no SDK):**
 ```json
 { "jsonrpc":"2.0","id":1,"method":"arkiv_query",
-  "params":[ "arkiv.schema = str('clear-signing-erc7730') AND chainId = u64(1) AND selector = bytes('0x474cf53d')",
+  "params":[ "arkiv.schema = str('clear-signing-erc7730') AND chainId = u64(1) AND selector = str('0x474cf53d')",
              { "select": { "attributes": true, "payload": true }, "limit": "0xa" } ] }
 ```
 
@@ -145,7 +157,7 @@ const format = entities[0]?.toJson()   // ERC-7730 format block
 
 | Field group | Written by | Changes when |
 |---|---|---|
-| lookup keys (`chainId`,`contract`,`selector`,`functionSignature`) | normalizer | never (identity) |
+| lookup keys (`chainId`,`contract`,`selector`) | normalizer | never (identity) |
 | format payload | sync / authorized-write | upstream descriptor changes |
 | `contentHash` | sync | descriptor content changes |
 | `authorizedBy`,`source` | writeApi | on an authorized write |
