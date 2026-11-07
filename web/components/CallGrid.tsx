@@ -21,9 +21,10 @@ export function CallGrid({
 
   return (
     <div className="card-grid">
-      {rows.map((row) => (
+      {rows.map((row, i) => (
         <RichCard
           key={row.selector}
+          index={i}
           thumbKey={`${row.selector}:${row.contract}`}
           thumbName={row.functionName || row.selector}
           status={row.kind}

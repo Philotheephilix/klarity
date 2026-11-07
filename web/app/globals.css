@@ -258,15 +258,18 @@ a {
   max-width: 760px;
 }
 
-/* Rich explorer card */
+/* Rich explorer card — crisp rectilinear block (tight radius, hairline cell
+ * border). Assembles block-by-block on mount (staggered via inline --i). */
 .rich-card {
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--card);
   border: 1px solid var(--border);
   transition: border-color 0.15s, background-color 0.15s;
   outline: none;
+  animation: block-rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 45ms);
 }
 .rich-card:hover {
   border-color: var(--border-strong);
@@ -282,7 +285,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   overflow: hidden;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
@@ -309,6 +312,7 @@ a {
   color: var(--ink-3);
   background: var(--card);
   border: 1px solid var(--border);
+  border-radius: 0;
 }
 .rich-status[data-tone='ok'] {
   color: var(--accent);
@@ -332,11 +336,20 @@ a {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   background: var(--card);
   color: var(--ink-4);
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  opacity: 0.35;
+  transition: color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.rich-card:hover .rich-bookmark,
+.rich-card:focus-within .rich-bookmark,
+.rich-bookmark:focus-visible {
+  opacity: 0.9;
+}
+.rich-bookmark[data-on='true'] {
+  opacity: 0.9;
 }
 .rich-bookmark:hover {
   color: var(--ink);
@@ -371,20 +384,37 @@ a {
 .rich-meta {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px 14px;
+  gap: 0;
   margin: 0;
+  /* Collapsed hairline grid: each cell reads as a block separated by shared
+   * 1px --border lines (outer frame + inner dividers) rather than loose gaps. */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 .rich-meta-cell {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+/* Drop the outer edges of the first row / first column so only interior
+ * dividers remain inside the frame. */
+.rich-meta-cell:nth-child(-n + 2) {
+  border-top: none;
+}
+.rich-meta-cell:nth-child(odd) {
+  border-left: none;
 }
 .rich-meta-label {
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
   color: var(--ink-4);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 .rich-meta-value {
   margin: 0;
@@ -570,37 +600,45 @@ a {
   cursor: pointer;
 }
 
-/* ---- Company list (shadcn-style rows) ------------------------------------ */
+/* ---- Company list (collapsed-border cell stack) -------------------------- */
 .company-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 .company-row {
   display: flex;
   align-items: center;
   gap: 14px;
   padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: var(--card);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background 0.12s ease;
+  /* Shared hairline between stacked cells (first row has none). */
+}
+.company-row + .company-row {
+  border-top: 1px solid var(--border);
+}
+.company-row {
+  animation: block-rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 45ms);
 }
 .company-row:hover {
   background: var(--surface-2);
-  border-color: var(--border-strong);
 }
 .company-row:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-wash);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .company-row-thumb {
   flex: 0 0 auto;
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -644,6 +682,12 @@ a {
   font-size: 22px;
   line-height: 1;
   color: var(--ink-4);
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+.company-row:hover .company-row-chevron,
+.company-row:focus-visible .company-row-chevron {
+  opacity: 0.9;
 }
 @media (max-width: 640px) {
   .company-row-meta .company-row-status { display: none; }
@@ -1235,9 +1279,28 @@ a {
     height: var(--bar-h, 6%);
   }
 }
+/* Piece-by-piece assembly: blocks fade + rise into place on mount. */
+@keyframes block-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .dash-bar {
     animation: none;
+  }
+  .company-row,
+  .rich-card {
+    animation: none;
+  }
+  .company-row-chevron,
+  .rich-bookmark {
+    transition: none;
   }
 }
 .dash-bar[data-hot='true'] {

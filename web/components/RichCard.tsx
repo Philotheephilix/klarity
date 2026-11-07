@@ -29,6 +29,7 @@ export function RichCard({
   footerName,
   footerSource,
   onOpen,
+  index = 0,
 }: {
   thumbKey: string;
   thumbName: string;
@@ -41,6 +42,7 @@ export function RichCard({
   footerName: string;
   footerSource: string;
   onOpen?: () => void;
+  index?: number;
 }) {
   const [marked, toggleMark] = useBookmark(bookmarkId);
 
@@ -56,6 +58,7 @@ export function RichCard({
       className="rich-card bench-card"
       role="button"
       tabIndex={0}
+      style={{ ['--i']: index } as React.CSSProperties}
       onClick={onOpen}
       onKeyDown={handleKey}
     >

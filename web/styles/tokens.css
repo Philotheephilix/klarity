@@ -89,7 +89,9 @@
   --font-head: 'Google Sans', 'Inter Head', var(--font-ui);
   --font-ui: 'Inter', 'Maison Neue', 'Instrument Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-code: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
-  --font-mono: var(--font-ui);
+  /* Terminal-adjacent: mono labels/metadata now render in the real monospace
+   * stack (was aliased to --font-ui). Same contract, no new hue. */
+  --font-mono: var(--font-code);
 }
 
 /*
@@ -171,4 +173,11 @@
   --dash-amber-bg: rgba(17, 17, 17, 0.05);
   --dash-dark-card: #ffffff;
   --dash-shell: #fafafa;
+
+  /* Fonts — same contract as the dark block. Mono labels render in the real
+   * monospace stack (terminal-adjacent); no new hue, both themes identical. */
+  --font-head: 'Google Sans', 'Inter Head', var(--font-ui);
+  --font-ui: 'Inter', 'Maison Neue', 'Instrument Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-code: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: var(--font-code);
 }
