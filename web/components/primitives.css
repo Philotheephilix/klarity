@@ -70,8 +70,8 @@
   color: var(--ink);
 }
 .bench-chip[data-on='true'] {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* 2b. Read-only tag chip — .ctx-chip */

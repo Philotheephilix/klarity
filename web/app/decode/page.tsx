@@ -6,11 +6,11 @@ import { Card } from '../../components/Card';
 export default function DecodeInfoPage() {
   return (
     <>
-      <div className="crumbs">
+      <nav className="crumbs" aria-label="Breadcrumb">
         <Link href="/">Home</Link>
-        <span>/</span>
-        <span>Decode</span>
-      </div>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">Decode</span>
+      </nav>
       <div className="page-head">
         <h1 className="page-title page-title-xl">Decode</h1>
         <p className="page-sub">

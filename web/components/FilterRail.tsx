@@ -46,7 +46,7 @@ export function FilterRail({
 
       <div className="filter-group">
         <span className="filter-legend mono">kind</span>
-        <div className="bench-chips" role="radiogroup" aria-label="kind">
+        <div className="bench-chips" role="group" aria-label="kind">
           {kinds.map((k) => (
             <Chip
               key={k}

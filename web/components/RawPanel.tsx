@@ -22,7 +22,11 @@ export function RawPanel({ vm }: { vm: RawPanelVM }) {
           <TagChip>{vm.selector}</TagChip>
           <TagChip>{vm.mode}</TagChip>
         </div>
-        <CodeBlock>{body}</CodeBlock>
+        {body ? (
+          <CodeBlock>{body}</CodeBlock>
+        ) : (
+          <p className="panel-sub">No sample payload available for this call.</p>
+        )}
       </div>
     </Card>
   );

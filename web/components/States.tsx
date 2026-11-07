@@ -22,7 +22,13 @@ export function ErrorCard({ error }: { error: string }) {
       <Card>
         <div className="card-pad state-card">
           <div className="card-title state-error">Could not load</div>
-          <p className="card-note">{error}</p>
+          <p className="card-note">
+            Something went wrong while loading this data. Try again in a moment.
+          </p>
+          <details>
+            <summary>Technical details</summary>
+            <p className="card-note">{error}</p>
+          </details>
         </div>
       </Card>
     </div>

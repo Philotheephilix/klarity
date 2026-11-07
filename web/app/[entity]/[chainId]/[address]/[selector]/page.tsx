@@ -33,17 +33,17 @@ export default function ExamplePage({
 
   return (
     <>
-      <div className="crumbs">
+      <nav className="crumbs" aria-label="Breadcrumb">
         <Link href="/">Home</Link>
-        <span>/</span>
+        <span aria-hidden="true">/</span>
         <Link href={`/${entity}`}>{entity}</Link>
-        <span>/</span>
+        <span aria-hidden="true">/</span>
         <Link href={`/${entity}/${chainId}/${address}`}>
           {chainId}:{address.slice(0, 10)}...
         </Link>
-        <span>/</span>
-        <span>{selector}</span>
-      </div>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">{selector}</span>
+      </nav>
       <div className="page-head">
         <h1 className="page-title">Blind sign vs. clear sign</h1>
         <p className="page-sub">

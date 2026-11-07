@@ -17,6 +17,19 @@ export function CompanyGrid({
   entities: SeedEntity[];
   onSelect: (entityName: string) => void;
 }) {
+  if (entities.length === 0) {
+    return (
+      <div className="card-grid">
+        <div className="empty-card">
+          <div className="card-title">No companies</div>
+          <p className="card-note">
+            No companies with mirrored descriptors yet.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="company-list">
       {entities.map((entity) => (

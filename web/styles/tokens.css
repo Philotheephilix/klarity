@@ -56,6 +56,11 @@
   --accent-wash: rgba(52, 209, 122, 0.12);
   --accent-edge: rgba(52, 209, 122, 0.35);
 
+  /* Danger triad — destructive/error surfaces (single red, both themes). */
+  --danger: #f0616d;
+  --danger-bg: rgba(240, 97, 109, 0.12);
+  --danger-edge: rgba(240, 97, 109, 0.4);
+
   /* Single border token + a consistent radius scale. */
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.16);
@@ -140,6 +145,11 @@
   --accent-ink: var(--on-ink);
   --accent-wash: rgba(31, 157, 91, 0.1);
   --accent-edge: rgba(31, 157, 91, 0.32);
+
+  /* Danger triad — retuned for light surfaces. */
+  --danger: #c93744;
+  --danger-bg: rgba(201, 55, 68, 0.1);
+  --danger-edge: rgba(201, 55, 68, 0.35);
 
   --border: rgba(17, 17, 17, 0.1);
   --border-strong: rgba(17, 17, 17, 0.16);

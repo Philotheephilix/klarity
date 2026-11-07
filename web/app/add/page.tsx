@@ -7,11 +7,11 @@ import { AddDescriptorForm } from '../../components/AddDescriptorForm';
 export default function AddDescriptorPage() {
   return (
     <>
-      <div className="crumbs">
+      <nav className="crumbs" aria-label="Breadcrumb">
         <Link href="/">Home</Link>
-        <span>/</span>
-        <span>Add descriptor</span>
-      </div>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">Add descriptor</span>
+      </nav>
       <div className="page-head">
         <h1 className="page-title page-title-xl">Add a descriptor</h1>
         <p className="page-sub">

@@ -108,6 +108,8 @@ a {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
   color: var(--ink-4);
   font-size: 13px;
 }
@@ -244,8 +246,16 @@ a {
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
+}
+
+/* Docs reference — single readable column, not a responsive card grid. */
+.docs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 760px;
 }
 
 /* Rich explorer card */
@@ -1405,14 +1415,14 @@ a {
   transform: scale(1.05);
 }
 .dash-pill[data-status='verified'] {
-  background: rgba(52, 209, 122, 0.14);
+  background: var(--accent-wash);
   color: var(--ok);
-  border: 1px solid rgba(52, 209, 122, 0.4);
+  border: 1px solid var(--accent-edge);
 }
 .dash-pill[data-status='pending'] {
   background: var(--dash-amber-bg);
   color: var(--dash-amber);
-  border: 1px solid rgba(217, 165, 33, 0.4);
+  border: 1px solid var(--border-strong);
 }
 .dash-pill[data-status='unverified'] {
   background: rgba(var(--ink-rgb), 0.08);
@@ -1847,6 +1857,18 @@ a {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-wash);
 }
+
+/* Shared keyboard focus ring — matches .add-input:focus across interactive
+ * controls that lacked a visible focus affordance. */
+.dash-btn:focus-visible,
+.dash-nav-link:focus-visible,
+.theme-toggle:focus-visible,
+.add-field-del:focus-visible,
+.dash-search-result:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
 .add-input-narrow {
   max-width: 120px;
 }
@@ -1895,9 +1917,9 @@ a {
 .add-error {
   padding: 10px 14px;
   border-radius: var(--radius-sm);
-  background: var(--dash-amber-bg);
-  color: var(--dash-amber);
-  border: 1px solid var(--dash-amber);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-edge);
   font-size: 13px;
   word-break: break-word;
 }
