@@ -23,9 +23,41 @@ const BEATS = [
   { id: 'intent', label: '01' },
   { id: 'single', label: '02' },
   { id: 'blind', label: '03' },
-  { id: 'arkiv', label: '04' },
-  { id: 'trust', label: '05' },
+  { id: 'decode', label: '04' },
+  { id: 'arkiv', label: '05' },
+  { id: 'trust', label: '06' },
 ] as const;
+
+/*
+ * The one calldata payload the deck narrates. Slide 1 shows it as an opaque
+ * wall of bytes; the Decode beat shows the SAME bytes resolved into intent, so
+ * the two slides visibly match. A real-looking ERC-20 approve calldata head
+ * padded out to a dense multi-line blob — illustrative, not a live fixture.
+ */
+const CALLDATA = [
+  '0x095ea7b3000000000000000000000000',
+  '1f9840a85d5af5bf1d1762f925bdaddc',
+  '4201f984ffffffffffffffffffffffff',
+  'ffffffffffffffffffffffffffffffff',
+  'ffffffff00000000000000000000000c',
+  '02aaa39b223fe8d0a0e5c4f27ead9083',
+  'c756cc2000000000000000000000000d',
+  '8ec3f9c4e2a3b17f0b2c6a1e7d5f9043',
+  '6e1a2b3c4d5e6f708192a3b4c5d6e7f8',
+  '09112233445566778899aabbccddeeff',
+  '00000000000000000000000000000001',
+  'a0b1c2d3e4f5061728394a5b6c7d8e9f',
+].join('');
+
+// Break the blob into fixed-width mono words for a terminal-style byte wall.
+const CALLDATA_WORDS = (CALLDATA.replace(/^0x/, '').match(/.{1,8}/g) ?? []).map(
+  (w, i) => (i === 0 ? `0x${w}` : w),
+);
+const DECODED_SENTENCE = {
+  action: 'Approve',
+  amount: '1,000 USDC',
+  spender: '0x1f98…a984',
+};
 
 export default function PitchPage() {
   const deckRef = useRef<HTMLDivElement>(null);
@@ -134,7 +166,7 @@ export default function PitchPage() {
           aria-label="Clear-signing turns hex into intent"
         >
           <div className="pitch-stage">
-            <TagChip>ERC-7730</TagChip>
+            <TagChip>Raw calldata</TagChip>
             <h2 className="pitch-head">Clear-signing: hex becomes intent.</h2>
             <IntentSvg />
           </div>
@@ -170,12 +202,27 @@ export default function PitchPage() {
           </div>
         </section>
 
-        {/* Beat 4 — Arkiv: always-available, un-takedownable */}
+        {/* Beat 4 — Decoded. Safe to sign. (same calldata, resolved) */}
         <section
           ref={setSlideRef(3)}
           className="pitch-slide"
-          data-beat="arkiv"
+          data-beat="decode"
           data-active={active === 3}
+          aria-label="The same calldata decoded into a readable sentence, safe to sign"
+        >
+          <div className="pitch-stage">
+            <TagChip>ERC-7730</TagChip>
+            <h2 className="pitch-head">Decoded. Safe to sign.</h2>
+            <DecodeSvg />
+          </div>
+        </section>
+
+        {/* Beat 5 — Arkiv: always-available, un-takedownable */}
+        <section
+          ref={setSlideRef(4)}
+          className="pitch-slide"
+          data-beat="arkiv"
+          data-active={active === 4}
           aria-label="Klarity replicates the registry across Arkiv nodes so links stay available"
         >
           <div className="pitch-stage">
@@ -185,12 +232,12 @@ export default function PitchPage() {
           </div>
         </section>
 
-        {/* Beat 5 — Attested. Ranked by trust. */}
+        {/* Beat 6 — Attested. Ranked by trust. */}
         <section
-          ref={setSlideRef(4)}
+          ref={setSlideRef(5)}
           className="pitch-slide"
           data-beat="trust"
-          data-active={active === 4}
+          data-active={active === 5}
           aria-label="Descriptors carry attestations and rank by verified trust"
         >
           <div className="pitch-stage">
@@ -245,29 +292,89 @@ export default function PitchPage() {
 }
 
 /* ---------------------------------------------------------------------------
- * Beat 1 — a wallet frame. The raw hex calldata (resting = hidden) animates
- * out and the readable intent sentence (resting = shown) animates in. Static
- * end-state: the readable sentence.
+ * Beat 1 — the opaque wall. A wallet frame showing a dense, multi-line block of
+ * raw calldata: what a user is actually asked to blind-sign. Mono terminal
+ * block; the bytes stream in line by line under motion, resting = full blob.
  * ------------------------------------------------------------------------- */
 function IntentSvg() {
   return (
     <div className="pitch-svg-wrap">
-      <div className="pitch-wallet" data-mode="clear">
+      <div className="pitch-wallet" data-mode="raw">
         <div className="pitch-wallet-bar">
           <span className="pitch-wallet-dot" />
           <span className="pitch-wallet-title">Confirm transaction</span>
         </div>
-        <div className="pitch-wallet-body">
-          <div className="pitch-hex" aria-hidden="true">
-            <MonoLabel>0xa9059cbb000000000000000000000000c02aaa39&hellip;0f5986</MonoLabel>
-          </div>
-          <div className="pitch-sentence">
-            <span className="pitch-sentence-lead">Approve</span>{' '}
-            <strong>1,000 USDC</strong> to <MonoLabel>0x1f98&hellip;a984</MonoLabel>
-          </div>
-          <svg className="pitch-morph" viewBox="0 0 320 24" fill="none" aria-hidden="true">
-            <line className="pitch-morph-line" x1="8" y1="12" x2="312" y2="12" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeDasharray="304" />
+        <div className="pitch-wallet-body pitch-wallet-body-raw">
+          <pre className="pitch-hexblob" aria-label="Opaque raw calldata">
+            {CALLDATA_WORDS.map((w, i) => (
+              <span
+                className="pitch-hexword"
+                key={i}
+                style={{ ['--i' as string]: i }}
+              >
+                {w}
+                {(i + 1) % 4 === 0 ? '\n' : ' '}
+              </span>
+            ))}
+          </pre>
+          <span className="pitch-hexnote">
+            <MonoLabel>{CALLDATA_WORDS.length} words &middot; unreadable</MonoLabel>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Beat 4 — Decoded. Safe to sign. The SAME calldata (left, dimmed) resolves
+ * into the readable sentence (right), and a slide-to-sign control completes.
+ * Resting end-state: decoded sentence + the slider at its confirmed position.
+ * ------------------------------------------------------------------------- */
+function DecodeSvg() {
+  return (
+    <div className="pitch-svg-wrap">
+      <div className="pitch-wallet pitch-decode" data-mode="clear">
+        <div className="pitch-wallet-bar">
+          <span className="pitch-wallet-dot" />
+          <span className="pitch-wallet-title">Confirm transaction</span>
+        </div>
+        <div className="pitch-decode-body">
+          <pre className="pitch-hexblob pitch-hexblob-sm" aria-hidden="true">
+            {CALLDATA_WORDS.map((w, i) => (
+              <span key={i}>
+                {w}
+                {(i + 1) % 4 === 0 ? '\n' : ' '}
+              </span>
+            ))}
+          </pre>
+          <svg className="pitch-decode-arrow" viewBox="0 0 40 24" fill="none" aria-hidden="true">
+            <path className="pitch-decode-arrow-line" d="M4 12 h26" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
+            <path d="M28 6 l7 6 -7 6" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
+          <div className="pitch-decode-sentence">
+            <span className="pitch-sentence-lead">{DECODED_SENTENCE.action}</span>{' '}
+            <strong>{DECODED_SENTENCE.amount}</strong>
+            <br />
+            <span className="pitch-decode-to">
+              to <MonoLabel>{DECODED_SENTENCE.spender}</MonoLabel>
+            </span>
+          </div>
+        </div>
+        {/* slide-to-sign: track + fill + knob; label swaps at completion */}
+        <div
+          className="pitch-swipe"
+          role="img"
+          aria-label="Slide to sign — completed"
+        >
+          <span className="pitch-swipe-fill" />
+          <span className="pitch-swipe-label pitch-swipe-label-idle">Slide to sign</span>
+          <span className="pitch-swipe-label pitch-swipe-label-done">Signed</span>
+          <span className="pitch-swipe-knob">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m5 12 5 5 9-11" stroke="var(--accent-ink)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
         </div>
       </div>
     </div>

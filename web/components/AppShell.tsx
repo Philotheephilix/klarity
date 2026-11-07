@@ -248,6 +248,14 @@ function TopBar() {
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? '/';
+
+  // The /pitch deck is a full-viewport, voice-narrated presentation: it must
+  // render edge to edge with no sidebar or shell chrome. Return children bare
+  // so it owns the whole window. The /pitch URL + nav link still work.
+  if (pathname === '/pitch') {
+    return <>{children}</>;
+  }
+
   const active = activeNavId(pathname);
 
   return (
