@@ -79,6 +79,36 @@ describe('ExampleView', () => {
     expect(screen.getByText(NOTE)).toBeInTheDocument();
   });
 
+  it('renders a decoded value when the field carries one, truncating addresses', () => {
+    render(
+      <ExampleView
+        row={calldataRow}
+        decode={decode([
+          {
+            label: 'Pool',
+            path: '#.pool',
+            format: 'addressName',
+            hidden: false,
+            value: '0xd0a1e359811322d97991e03f863a0c30c2cf029c',
+            type: 'address',
+          },
+          {
+            label: 'Amount',
+            path: '#.amount',
+            format: 'tokenAmount',
+            hidden: false,
+            value: '1000000000000000000',
+            type: 'uint256',
+          },
+        ])}
+      />,
+    );
+    // Non-address value shown in full.
+    expect(screen.getByText('1000000000000000000')).toBeInTheDocument();
+    // Address value truncated via shortAddress (0x + first 8 + ... + last 4).
+    expect(screen.getByText('0xd0a1e359...029c')).toBeInTheDocument();
+  });
+
   it('shows the labels-unavailable state when decode has no fields', () => {
     render(<ExampleView row={calldataRow} decode={decode([])} />);
     expect(screen.getByText(/clear-sign labels unavailable for this row/i)).toBeInTheDocument();

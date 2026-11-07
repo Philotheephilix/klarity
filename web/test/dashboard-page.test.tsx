@@ -76,7 +76,7 @@ describe('Dashboard home', () => {
     expect(container.querySelector('.kl-mark')).not.toBeNull();
     // nav links point at kept routes
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/');
-    expect(screen.getByRole('link', { name: 'Entities' })).toHaveAttribute('href', '/browse');
+    expect(screen.getByRole('link', { name: 'Companies' })).toHaveAttribute('href', '/browse');
   });
 
   it('renders the top bar: search with cmd chip', async () => {

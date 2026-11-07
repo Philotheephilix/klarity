@@ -1,7 +1,42 @@
 import { Card } from './Card';
 import { MonoLabel } from './CodeBlock';
 import { TagChip } from './Chip';
+import { shortAddress } from '../lib/cardmeta';
+import type { SigningField } from '../lib/types';
 import type { ClearSignVM } from '../lib/viewmodel';
+
+/** True when a decoded value looks like a bare 20-byte address. */
+function isAddress(field: SigningField): boolean {
+  if (field.type === 'address') return true;
+  return typeof field.value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(field.value);
+}
+
+/** Render the decoded value, truncating address-shaped values for legibility. */
+function displayValue(field: SigningField): string {
+  const v = field.value ?? '';
+  return isAddress(field) ? shortAddress(v) : v;
+}
+
+function FieldRow({ field }: { field: SigningField }) {
+  const hasValue = typeof field.value === 'string' && field.value.length > 0;
+  return (
+    <li className="field-row">
+      <div className="field-row-head">
+        <span className="field-label">{field.label}</span>
+        {hasValue ? (
+          <span className="field-value" title={field.value}>
+            {displayValue(field)}
+          </span>
+        ) : null}
+      </div>
+      <div className="field-row-meta">
+        <MonoLabel>{field.path}</MonoLabel>
+        {field.type ? <span className="field-type">{field.type}</span> : null}
+        {field.format ? <TagChip>{field.format}</TagChip> : null}
+      </div>
+    </li>
+  );
+}
 
 export function ClearSignPanel({ vm }: { vm: ClearSignVM }) {
   return (
@@ -19,11 +54,7 @@ export function ClearSignPanel({ vm }: { vm: ClearSignVM }) {
             <h2 className="panel-summary">{vm.summary}</h2>
             <ul className="field-list">
               {vm.visibleFields.map((field) => (
-                <li key={field.path} className="field-row">
-                  <span className="field-label">{field.label}</span>
-                  {field.format ? <TagChip>{field.format}</TagChip> : null}
-                  <MonoLabel>{field.path}</MonoLabel>
-                </li>
+                <FieldRow key={field.path} field={field} />
               ))}
             </ul>
             {vm.hiddenFields.length > 0 ? (
@@ -31,10 +62,7 @@ export function ClearSignPanel({ vm }: { vm: ClearSignVM }) {
                 <summary>{vm.hiddenFields.length} hidden field(s)</summary>
                 <ul className="field-list">
                   {vm.hiddenFields.map((field) => (
-                    <li key={field.path} className="field-row">
-                      <span className="field-label">{field.label}</span>
-                      <MonoLabel>{field.path}</MonoLabel>
-                    </li>
+                    <FieldRow key={field.path} field={field} />
                   ))}
                 </ul>
               </details>

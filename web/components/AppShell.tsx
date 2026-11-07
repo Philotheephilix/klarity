@@ -10,6 +10,8 @@ import {
   KlarityMark,
   IconDashboard,
   IconEntities,
+  IconContracts,
+  IconPlay,
   IconSettings,
   IconBook,
 } from './icons';
@@ -23,37 +25,34 @@ interface NavItem {
 
 const MENU_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/', Icon: IconDashboard },
-  { id: 'entities', label: 'Entities', href: '/browse', Icon: IconEntities },
+  { id: 'entities', label: 'Companies', href: '/browse', Icon: IconEntities },
+  { id: 'add', label: 'Add descriptor', href: '/add', Icon: IconContracts },
+  { id: 'decode', label: 'Decode', href: '/decode', Icon: IconPlay },
 ];
 
 /**
  * Derive the active nav id from the current pathname so the sidebar highlight
  * tracks the route on every page (SPA). `/` -> dashboard, `/browse` ->
- * entities, and any `/[entity]...` deep route -> contracts (the entity's
- * contract/call view). Decode and other routes leave nothing highlighted.
+ * entities, `/add` -> add, `/decode` -> decode, and any `/[entity]...` deep
+ * route -> entities (those contract/call pages belong to the Companies section).
  */
 export function activeNavId(pathname: string): string {
   if (pathname === '/') return 'dashboard';
   if (pathname === '/browse') return 'entities';
-  if (pathname === '/decode') return '';
+  if (pathname === '/add') return 'add';
+  if (pathname === '/decode') return 'decode';
   // /[entity], /[entity]/[chainId]/[address], /.../[selector]
-  if (/^\/[^/]+/.test(pathname)) return 'contracts';
+  if (/^\/[^/]+/.test(pathname)) return 'entities';
   return '';
 }
 
 function Sidebar({ active }: { active: string }) {
-  const toast = useToast();
   return (
     <aside className="dash-sidebar">
-      <button
-        type="button"
-        className="dash-brand"
-        onClick={() => toast.show('Klarity explorer — mirrored registry in sync')}
-        title="Klarity"
-      >
+      <Link href="/" className="dash-brand" title="Klarity">
         <KlarityMark size={28} />
         <span className="dash-wordmark">Klarity</span>
-      </button>
+      </Link>
 
       <nav className="dash-nav" aria-label="Primary">
         <div className="dash-nav-group">MENU</div>
@@ -73,12 +72,18 @@ function Sidebar({ active }: { active: string }) {
         ))}
 
         <div className="dash-nav-group dash-nav-group-gap">GENERAL</div>
-        <Link href="/" className="dash-nav-link" title="Settings" aria-label="Settings">
+        <span
+          className="dash-nav-link"
+          data-disabled="true"
+          aria-disabled="true"
+          title="Settings (coming soon)"
+          aria-label="Settings (coming soon)"
+        >
           <span className="dash-nav-ico">
             <IconSettings size={18} />
           </span>
           Settings
-        </Link>
+        </span>
         <div className="dash-nav-theme">
           <ThemeToggle />
         </div>

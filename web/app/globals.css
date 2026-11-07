@@ -517,18 +517,127 @@ a {
 }
 .field-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.field-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 .field-label {
   font-size: 14px;
+  font-weight: 600;
   color: var(--ink);
+}
+.field-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  text-align: right;
+  word-break: break-all;
+  max-width: 60%;
+}
+.field-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.field-type {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
 }
 .hidden-fields summary {
   color: var(--ink-3);
   font-size: 13px;
   cursor: pointer;
+}
+
+/* ---- Company list (shadcn-style rows) ------------------------------------ */
+.company-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.company-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.company-row:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+.company-row:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+.company-row-thumb {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+}
+.company-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.company-row-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+}
+.company-row-sub {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+.company-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.company-row-status {
+  font-size: 12px;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.company-row-chevron {
+  flex: 0 0 auto;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-4);
+}
+@media (max-width: 640px) {
+  .company-row-meta .company-row-status { display: none; }
+  .field-value { max-width: 100%; text-align: left; }
 }
 
 .state-card {
@@ -643,6 +752,15 @@ a {
 }
 .dash-nav-link[data-on='true'] .dash-nav-ico {
   color: var(--accent);
+}
+.dash-nav-link[data-disabled='true'] {
+  color: var(--ink-5);
+  cursor: default;
+  opacity: 0.6;
+}
+.dash-nav-link[data-disabled='true']:hover {
+  background: transparent;
+  color: var(--ink-5);
 }
 .dash-nav-ico {
   display: inline-flex;
@@ -1665,4 +1783,172 @@ a {
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+/* ---- Add-descriptor form -------------------------------------------------- */
+/* The /add page is a single form, not a card grid — give it a comfortable
+ * reading width and let its rows use the horizontal space instead of being
+ * squeezed into one narrow grid column. */
+.add-page {
+  width: 100%;
+  max-width: 880px;
+}
+.add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.add-wallet-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.add-wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent-edge);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.add-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.add-hint {
+  font-weight: 400;
+  color: var(--ink-4);
+}
+.add-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-family: var(--font-ui);
+}
+.add-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+.add-input-narrow {
+  max-width: 120px;
+}
+.add-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.add-fields-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.add-mini {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.add-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 120px 32px;
+  gap: 8px;
+  align-items: center;
+}
+.add-field-del {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-3);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+.add-field-del:hover {
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+.add-error {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--dash-amber-bg);
+  color: var(--dash-amber);
+  border: 1px solid var(--dash-amber);
+  font-size: 13px;
+  word-break: break-word;
+}
+.add-success {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-edge);
+}
+.add-success-title {
+  font-weight: 700;
+  color: var(--accent-ink);
+}
+.add-success-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.add-success-row code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  word-break: break-all;
+  text-align: right;
+}
+.add-pr-link {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+}
+.add-submit {
+  align-self: flex-start;
+}
+.add-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.add-foot {
+  font-size: 12px;
+  color: var(--ink-4);
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .add-grid { grid-template-columns: 1fr; }
+  .add-field-row { grid-template-columns: 1fr; }
+  .add-input-narrow { max-width: none; }
 }

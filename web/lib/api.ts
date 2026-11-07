@@ -1,4 +1,6 @@
 import type {
+  CreateDescriptorRequest,
+  CreateDescriptorResponse,
   DecodeRequest,
   DecodeResponse,
   DescriptorRow,
@@ -61,10 +63,39 @@ export class KlarityApi {
     return data as DecodeResponse;
   }
 
+  // POST /descriptors — a wallet-signed authoritative write. On success the
+  // server mirrors to Arkiv and opens a PR, returning the PR url. On a rejected
+  // write (bad hash, expired, unauthorized wallet, replay) the server's JSON
+  // `message` is surfaced verbatim so the UI can show WALLET_NOT_AUTHORIZED /
+  // HASH_MISMATCH / etc. rather than a generic status.
+  async createDescriptor(
+    body: CreateDescriptorRequest,
+  ): Promise<CreateDescriptorResponse> {
+    const data = await this.fetchJson('/descriptors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return data as CreateDescriptorResponse;
+  }
+
   private async fetchJson(path: string, init?: RequestInit): Promise<unknown> {
     const res = await fetch(`${this.baseUrl}${path}`, init);
     if (!res.ok) {
-      throw new Error(`Klarity API request to ${path} failed with status ${res.status}`);
+      // Keep the status (tests + debugging rely on it) AND, when present, the
+      // server's JSON { message | error } so callers see the real reason
+      // (e.g. an auth rejection) rather than a bare code.
+      let detail = `status ${res.status}`;
+      try {
+        const body = (await res.json()) as { message?: unknown; error?: unknown };
+        const msg = body?.message ?? body?.error;
+        if (typeof msg === 'string' && msg.length > 0) {
+          detail = `status ${res.status}: ${msg}`;
+        }
+      } catch {
+        // non-JSON error body — keep the status-only detail
+      }
+      throw new Error(`Klarity API request to ${path} failed with ${detail}`);
     }
     return res.json();
   }
