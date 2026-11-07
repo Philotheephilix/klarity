@@ -19,12 +19,13 @@ export function CompanyGrid({
 }) {
   return (
     <div className="company-list">
-      {entities.map((entity) => (
+      {entities.map((entity, i) => (
         <article
           key={entity.entityName}
           className="company-row"
           role="button"
           tabIndex={0}
+          style={{ ['--i']: i } as React.CSSProperties}
           onClick={() => onSelect(entity.entityName)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {

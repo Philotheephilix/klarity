@@ -27,11 +27,12 @@ export function ContractGrid({
 
   return (
     <div className="card-grid">
-      {groups.map((group) => {
+      {groups.map((group, i) => {
         const first = group.selectors[0];
         return (
           <RichCard
             key={`${group.chainId}:${group.contract}`}
+            index={i}
             thumbKey={`${group.chainId}:${group.contract}`}
             thumbName={group.contractName || group.contract}
             status={group.kinds.includes('eip712') ? 'eip712' : 'clear-signed'}
