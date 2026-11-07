@@ -28,6 +28,7 @@ const MENU_ITEMS: NavItem[] = [
   { id: 'entities', label: 'Companies', href: '/browse', Icon: IconEntities },
   { id: 'add', label: 'Add descriptor', href: '/add', Icon: IconContracts },
   { id: 'decode', label: 'Decode', href: '/decode', Icon: IconPlay },
+  { id: 'pitch', label: 'Pitch', href: '/pitch', Icon: IconPlay },
 ];
 
 /**
@@ -41,6 +42,7 @@ export function activeNavId(pathname: string): string {
   if (pathname === '/browse') return 'entities';
   if (pathname === '/add') return 'add';
   if (pathname === '/decode') return 'decode';
+  if (pathname === '/pitch') return 'pitch';
   // /[entity], /[entity]/[chainId]/[address], /.../[selector]
   if (/^\/[^/]+/.test(pathname)) return 'entities';
   return '';
