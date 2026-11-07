@@ -21,9 +21,9 @@ import { MonoLabel } from '../../components/CodeBlock';
 
 const BEATS = [
   { id: 'intent', label: '01' },
-  { id: 'single', label: '02' },
-  { id: 'blind', label: '03' },
-  { id: 'decode', label: '04' },
+  { id: 'decode', label: '02' },
+  { id: 'single', label: '03' },
+  { id: 'blind', label: '04' },
   { id: 'arkiv', label: '05' },
   { id: 'trust', label: '06' },
 ] as const;
@@ -172,27 +172,42 @@ export default function PitchPage() {
   return (
     <div className="pitch-root">
       <div className="pitch-deck" ref={deckRef}>
-        {/* Beat 1 — Clear-signing: hex becomes intent */}
+        {/* Beat 1 — This is what you actually sign (opaque raw calldata) */}
         <section
           ref={setSlideRef(0)}
           className="pitch-slide"
           data-beat="intent"
           data-active={active === 0}
-          aria-label="Clear-signing turns hex into intent"
+          aria-label="Opaque raw calldata is what a user actually signs"
         >
           <div className="pitch-stage">
             <TagChip>Raw calldata</TagChip>
-            <h2 className="pitch-head">Clear-signing: hex becomes intent.</h2>
+            <h2 className="pitch-head">This is what you actually sign.</h2>
             <IntentSvg />
           </div>
         </section>
 
-        {/* Beat 2 — One registry. One host. */}
+        {/* Beat 2 — Decoded. Safe to sign. (same calldata, resolved) */}
         <section
           ref={setSlideRef(1)}
           className="pitch-slide"
-          data-beat="single"
+          data-beat="decode"
           data-active={active === 1}
+          aria-label="The same calldata decoded into a readable sentence, safe to sign"
+        >
+          <div className="pitch-stage">
+            <TagChip>ERC-7730</TagChip>
+            <h2 className="pitch-head">Decoded. Safe to sign.</h2>
+            <DecodeSvg />
+          </div>
+        </section>
+
+        {/* Beat 3 — One registry. One host. */}
+        <section
+          ref={setSlideRef(2)}
+          className="pitch-slide"
+          data-beat="single"
+          data-active={active === 2}
           aria-label="One registry served from one host"
         >
           <div className="pitch-stage">
@@ -202,33 +217,18 @@ export default function PitchPage() {
           </div>
         </section>
 
-        {/* Beat 3 — GitHub drops. Wallets go blind. */}
+        {/* Beat 4 — GitHub drops. Wallets go blind. */}
         <section
-          ref={setSlideRef(2)}
+          ref={setSlideRef(3)}
           className="pitch-slide"
           data-beat="blind"
-          data-active={active === 2}
+          data-active={active === 3}
           aria-label="When GitHub drops, wallets fall back to blind signing"
         >
           <div className="pitch-stage">
             <TagChip>Blind signing</TagChip>
             <h2 className="pitch-head">GitHub drops. Wallets go blind.</h2>
             <BlindSvg />
-          </div>
-        </section>
-
-        {/* Beat 4 — Decoded. Safe to sign. (same calldata, resolved) */}
-        <section
-          ref={setSlideRef(3)}
-          className="pitch-slide"
-          data-beat="decode"
-          data-active={active === 3}
-          aria-label="The same calldata decoded into a readable sentence, safe to sign"
-        >
-          <div className="pitch-stage">
-            <TagChip>ERC-7730</TagChip>
-            <h2 className="pitch-head">Decoded. Safe to sign.</h2>
-            <DecodeSvg />
           </div>
         </section>
 
@@ -274,6 +274,7 @@ export default function PitchPage() {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
           </svg>
+          <span className="pitch-btn-label">Prev</span>
         </button>
         <div className="pitch-dots" role="tablist" aria-label="Slides">
           {BEATS.map((b, i) => (
@@ -297,6 +298,9 @@ export default function PitchPage() {
           disabled={active === BEATS.length - 1}
           aria-label="Next slide"
         >
+          <span className="pitch-btn-label">
+            {active === BEATS.length - 1 ? 'End' : 'Next'}
+          </span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m9 18 6-6-6-6" />
           </svg>

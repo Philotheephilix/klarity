@@ -97,16 +97,24 @@
 }
 
 .pitch-btn {
-  display: grid;
-  place-items: center;
-  width: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 34px;
+  padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--ink-2);
   cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+.pitch-btn-label {
+  line-height: 1;
 }
 .pitch-btn:hover:not(:disabled) {
   color: var(--accent);
