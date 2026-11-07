@@ -5,6 +5,7 @@ import type { ArkivClient } from './arkiv/client.js';
 import type { GitHubClient } from './github.js';
 import type { Db } from './db.js';
 import type { Config } from './config.js';
+import type { EfAttester } from './eas/attester.js';
 import { registerQueryRoutes } from './routes/query.js';
 import { registerDecodeRoute } from './routes/decode.js';
 import { registerWriteRoutes } from './routes/write.js';
@@ -20,6 +21,12 @@ export interface ServerDeps {
   github: GitHubClient;
   db: Db;
   config: Config;
+  /**
+   * Optional EF attester. When present, an authorized write is attested on-chain
+   * and the UID is stamped onto the mirrored row. Absent ⇒ writes skip
+   * attestation (no key is ever read to synthesize one).
+   */
+  attester?: EfAttester;
 }
 
 /**
@@ -33,6 +40,28 @@ export interface ServerDeps {
  */
 export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({ logger: false });
+
+  // CORS for the MetaMask Snap client. A Snap runs in a sandboxed iframe whose
+  // requests carry a `null` Origin and are subject to the browser same-origin
+  // policy; MetaMask's network-access docs require the server to answer with
+  // `Access-Control-Allow-Origin: *` (or `null`) or the Snap's `fetch` throws
+  // before it ever sees the body (symptom: the Snap falls back to "no
+  // clear-signing" even though curl gets a 200). We also answer the POST
+  // preflight (the Snap sends POST + Content-Type, which is a non-simple
+  // request). A wildcard origin precludes credentials, which the Snap sends
+  // none of. This mirrors the one documented networking constraint and is safe
+  // for a read-mostly decode API.
+  app.addHook('onRequest', async (req, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type');
+    reply.header('Access-Control-Max-Age', '86400');
+    if (req.method === 'OPTIONS') {
+      // Short-circuit the preflight before route matching so a missing OPTIONS
+      // route never turns the preflight into a 404 (which blocks the real call).
+      await reply.code(204).send();
+    }
+  });
 
   // Keep the raw request bytes for HMAC verification, then JSON-parse ourselves.
   app.addContentTypeParser(

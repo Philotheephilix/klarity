@@ -1,0 +1,169 @@
+/*
+ * Bencho primitive component CSS — copied verbatim from the component catalog
+ * (.scratch/bencho-probe/component-catalog.md). Do not restyle; these are the
+ * design-system source. No emojis anywhere.
+ */
+
+/* 1. Top nav — .bench-nav + .bench-navlink */
+.bench-nav {
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
+  display: flex;
+  position: relative;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.bench-nav::-webkit-scrollbar {
+  display: none;
+}
+.bench-navlink {
+  color: var(--ink-3);
+  cursor: pointer;
+  background: 0 0;
+  border: 0;
+  flex: none;
+  padding: 2px 0;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 19.5px;
+  text-decoration: none;
+  transition: color 0.16s, scale 0.12s;
+  display: inline-flex;
+  position: relative;
+}
+.bench-navlink:hover,
+.bench-navlink[data-on='true'] {
+  color: var(--ink);
+}
+.bench-navlink:active {
+  scale: 0.985;
+}
+
+/* 2. Pill filter chip — .bench-chips + .bench-chip */
+.bench-chips {
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.bench-chip {
+  background: rgba(var(--ink-rgb), var(--wash));
+  height: 36px;
+  color: var(--ink-2);
+  border: 0;
+  border-radius: 999px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.16s, color 0.16s, scale 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  display: inline-flex;
+}
+.bench-chip:hover {
+  color: var(--ink);
+}
+.bench-chip[data-on='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+/* 2b. Read-only tag chip — .ctx-chip */
+.ctx-chips {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+  display: flex;
+}
+.ctx-chip {
+  background: color-mix(in srgb, var(--fill-on, #17181a) 6%, var(--fill-slab, #fff));
+  height: 32px;
+  color: var(--fill-on);
+  border: 0;
+  border-radius: 999px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 13px;
+  cursor: default;
+  display: inline-flex;
+}
+
+/* 3. Search bar (command-K) — .bench-find + .bench-findbox + .nav-kbd */
+.bench-find {
+  background: var(--surface);
+  height: 44px;
+  color: var(--ink-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  display: flex;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.bench-find:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+.bench-findbox {
+  min-width: 0;
+  color: var(--ink);
+  background: 0 0;
+  border: 0;
+  outline: none;
+  flex: 1;
+  font-family: inherit;
+  font-size: 14px;
+}
+.bench-findbox::placeholder {
+  color: var(--ink-4);
+}
+.nav-kbd {
+  font-family: var(--font-mono);
+  border: 0.5px solid var(--nav-border);
+  border-radius: 4px;
+  margin-left: auto;
+  padding: 2px 5px;
+  font-size: 10px;
+}
+
+/* 4. Rounded card — .bench-card (flat, neutral, 1px border; single-accent DS) */
+.bench-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 6. Code / call-data panel — .code-block (+ .mono labels, .tok-code) */
+.code-block {
+  font-family: var(--font-code);
+  color: var(--ink-2);
+  white-space: pre;
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.62;
+  overflow: hidden;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+.tok-code {
+  color: var(--ink-4);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 9.5px;
+}

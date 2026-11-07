@@ -1,0 +1,35 @@
+{
+  "version": "0.1.0",
+  "description": "Klarity clear-signing insights, rendered pre-sign in MetaMask.",
+  "proposedName": "Klarity Clear Signing",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/klarity/klarity.git"
+  },
+  "source": {
+    "shasum": "kpqKW51qW/1tmqeAvcpG/qZIXW8e8P0/AgaxC60djA0=",
+    "location": {
+      "npm": {
+        "filePath": "dist/bundle.js",
+        "iconPath": "images/icon.svg",
+        "packageName": "@klarity/snap",
+        "registry": "https://registry.npmjs.org/"
+      }
+    }
+  },
+  "initialPermissions": {
+    "endowment:transaction-insight": {
+      "allowTransactionOrigin": true
+    },
+    "endowment:network-access": {},
+    "endowment:ethereum-provider": {},
+    "endowment:cronjob": {
+      "jobs": []
+    },
+    "endowment:page-home": {},
+    "snap_dialog": {},
+    "snap_manageState": {}
+  },
+  "platformVersion": "10.4.0",
+  "manifestVersion": "0.1"
+}

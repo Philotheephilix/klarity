@@ -35,6 +35,12 @@ export const ClearSignDescriptor = defineSchema(SCHEMA_NAMESPACE, {
   authorizedBy: addr().indexed().optional(),
   source: str().indexed(),
   eip712PrimaryType: str().indexed().optional(),
+  // EAS EF-gate attestation bound to this row: the on-chain UID (indexed str
+  // holding its 0x…64hex) and the attester address. Both optional — old rows and
+  // not-yet-attested rows carry neither; a re-sync without an attestation clears
+  // them via OPTIONAL_COLUMNS so a stale UID never lingers.
+  attestationUID: str().indexed().optional(),
+  attester: addr().indexed().optional(),
   // read-back only (loop guard / EIP-712 binding); bytes is never indexable.
   contentHash: bytes(),
   // the full canonical format block + its hash; neither is indexed or queried.
@@ -66,6 +72,8 @@ export const INDEXED_ATTRIBUTES = [
   'authorizedBy',
   'source',
   'eip712PrimaryType',
+  'attestationUID',
+  'attester',
 ] as const;
 
 /** Provenance + content metadata the writer layer injects at upsert time. */
@@ -76,6 +84,15 @@ export interface WriteMeta {
   authorizedBy?: string;
   /** `descriptorHash(fullDescriptor)` — the one system hash, as `0x…`. */
   contentHash: string;
+  /** EAS EF-gate attestation UID bound to this row (`0x…64hex`). */
+  attestationUID?: string;
+  /** EF wallet that produced the attestation (the on-chain attester). */
+  attester?: string;
+}
+
+/** A well-formed EAS attestation UID is exactly `0x` + 64 hex characters. */
+function isAttestationUID(s: string): boolean {
+  return /^0x[0-9a-fA-F]{64}$/.test(s);
 }
 
 /**
@@ -143,6 +160,19 @@ export function toValues(
     fitsStrCap(rec.eip712PrimaryType)
   ) {
     values.eip712PrimaryType = str(rec.eip712PrimaryType);
+  }
+
+  // Attestation columns travel together: emit both only when the UID is
+  // well-formed. A malformed UID is dropped entirely (never half-written), and
+  // the attester is meaningless without its UID, so it goes too.
+  if (
+    meta.attestationUID !== undefined &&
+    isAttestationUID(meta.attestationUID)
+  ) {
+    values.attestationUID = str(meta.attestationUID);
+    if (meta.attester !== undefined && meta.attester !== '') {
+      values.attester = addr(meta.attester.toLowerCase());
+    }
   }
 
   return values;

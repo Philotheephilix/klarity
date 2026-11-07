@@ -1,0 +1,164 @@
+/*
+ * Bencho dark design tokens — copied verbatim from the component catalog
+ * (.scratch/bencho-probe/component-catalog.md §tokens, resolved on
+ * [data-theme="dark"]). Do not restyle; these are the design-system source.
+ */
+:root,
+[data-theme='dark'] {
+  --bg: #000;
+  --surface: #0f0f0f;
+  --surface-2: #181818;
+  --surface-3: #202020;
+  --card: #0a0a0a;
+  --board: #1a1a1a;
+
+  --ink: #fff;
+  --ink-2: #b4b4b4;
+  --ink-3: #9a9a9a;
+  --ink-4: #828282;
+  --ink-5: #6b6b6b;
+  --on-ink: #000;
+
+  --pick: #3aa9ff;
+  --guide: #ff5c84;
+  --ok: #34d17a;
+  --signal: #2231dd;
+  --ember: #b8431c;
+  --lock: #525252;
+
+  --ink-rgb: 255, 255, 255;
+  --elev-rgb: 32, 32, 32;
+  --surface-rgb: 15, 15, 15;
+  --shadow-rgb: 0, 0, 0;
+
+  --pane: rgba(255, 255, 255, 0.16);
+  --pane-edge: rgba(255, 255, 255, 0.2);
+  --wash: 0.06;
+
+  --solid: #000;
+  --solid-ink: #fff;
+
+  --nav-border: rgba(255, 255, 255, 0.14);
+
+  /* .ctx-chip (catalog) reads --fill-on (text) and --fill-slab (base) from a
+   * theme scope. On dark these resolve to white ink on a subtle white wash so
+   * the read-only badge stays on-theme. */
+  --fill-on: #fff;
+  --fill-slab: #000;
+
+  /* ---- Design-system primitives (flat, neutral, single-accent). ----
+   * One accent (green, aliasing Klarity's --ok) used sparingly; everything else
+   * is a neutral gray scale. Thin 1px borders, consistent small-to-medium
+   * radii, subtle/no shadows — shadcn/ui + Vercel aesthetic. Defined in BOTH
+   * theme blocks so light + dark resolve identically restrained. */
+  --accent: var(--ok);
+  --accent-ink: var(--on-ink);
+  --accent-wash: rgba(52, 209, 122, 0.12);
+  --accent-edge: rgba(52, 209, 122, 0.35);
+
+  /* Single border token + a consistent radius scale. */
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  /* Dashboard surfaces — all flat (no gradients). --dash-green kept as an alias
+   * of the single accent; the former green-ramp stops now all resolve to the
+   * single accent so nothing renders a multi-hue gradient. */
+  --dash-green: var(--accent);
+  --dash-green-deep: var(--accent);
+  --dash-green-mid: var(--accent);
+  --dash-green-mint: var(--accent);
+  --dash-page: #000;
+  --dash-frame: #0f0f0f;
+  --dash-surface: #0a0a0a;
+  --dash-card: #0f0f0f;
+  --dash-amber: var(--ink-3);
+  --dash-amber-bg: rgba(255, 255, 255, 0.06);
+  --dash-dark-card: #0f0f0f;
+  /* Outer app-frame shell background. */
+  --dash-shell: #000;
+
+  --font-head: 'Google Sans', 'Inter Head', var(--font-ui);
+  --font-ui: 'Inter', 'Maison Neue', 'Instrument Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-code: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: var(--font-ui);
+}
+
+/*
+ * Light theme — same custom-property contract as the dark set, retuned for a
+ * near-white surface. Added for the explorer redesign (persisted theme toggle).
+ * The accents (--pick / --ok / --guide) are kept but darkened just enough to
+ * stay legible on light fills; --ink-rgb flips to a dark ink so the translucent
+ * `rgba(var(--ink-rgb), var(--wash))` fills become subtle grey washes.
+ */
+[data-theme='light'] {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f2f2f3;
+  --surface-3: #eaeaec;
+  --card: #ffffff;
+  --board: #f0f0f2;
+
+  --ink: #0a0a0a;
+  --ink-2: #3a3a3a;
+  --ink-3: #5a5a5a;
+  --ink-4: #7a7a7a;
+  --ink-5: #9a9a9a;
+  --on-ink: #fff;
+
+  --pick: #0a84e0;
+  --guide: #e03a66;
+  --ok: #1f9d5b;
+  --signal: #2231dd;
+  --ember: #b8431c;
+  --lock: #b0b0b0;
+
+  --ink-rgb: 17, 17, 17;
+  --elev-rgb: 255, 255, 255;
+  --surface-rgb: 255, 255, 255;
+  --shadow-rgb: 0, 0, 0;
+
+  --pane: rgba(17, 17, 17, 0.08);
+  --pane-edge: rgba(17, 17, 17, 0.12);
+  --wash: 0.04;
+
+  --solid: #0a0a0a;
+  --solid-ink: #fff;
+
+  --nav-border: rgba(17, 17, 17, 0.16);
+
+  --fill-on: #0a0a0a;
+  --fill-slab: #fff;
+
+  /* ---- Design-system primitives (flat, neutral, single-accent) — light. ----
+   * Same contract as the dark block, retuned for near-white surfaces. One
+   * accent (green, --ok) used sparingly; neutral gray scale elsewhere. */
+  --accent: var(--ok);
+  --accent-ink: var(--on-ink);
+  --accent-wash: rgba(31, 157, 91, 0.1);
+  --accent-edge: rgba(31, 157, 91, 0.32);
+
+  --border: rgba(17, 17, 17, 0.1);
+  --border-strong: rgba(17, 17, 17, 0.16);
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  /* Dashboard surfaces — all flat (no gradients) on light. */
+  --dash-green: var(--accent);
+  --dash-green-deep: var(--accent);
+  --dash-green-mid: var(--accent);
+  --dash-green-mint: var(--accent);
+  --dash-page: #fafafa;
+  --dash-frame: #ffffff;
+  --dash-surface: #ffffff;
+  --dash-card: #ffffff;
+  --dash-amber: var(--ink-3);
+  --dash-amber-bg: rgba(17, 17, 17, 0.05);
+  --dash-dark-card: #ffffff;
+  --dash-shell: #fafafa;
+}

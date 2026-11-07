@@ -30,6 +30,27 @@ function oneRecordDescriptor() {
   };
 }
 
+// A descriptor with two display formats -> two EntityRecords (two selectors).
+function twoRecordDescriptor() {
+  return {
+    $schema: 'https://eips.ethereum.org/assets/eip-7730/erc7730-v1.schema.json',
+    context: {
+      contract: {
+        deployments: [
+          { chainId: 1, address: '0xAbCdEf0000000000000000000000000000000001' },
+        ],
+      },
+    },
+    metadata: { owner: 'Aave' },
+    display: {
+      formats: {
+        'transfer(address,uint256)': { intent: 'Transfer' },
+        'approve(address,uint256)': { intent: 'Approve' },
+      },
+    },
+  };
+}
+
 function cfg(wallets: string[]): Config {
   return {
     arkiv: { privateKey: '', rpcUrl: '', wsUrl: '', chainId: 7794095 },
@@ -54,6 +75,7 @@ function makeDeps(opts: {
   queryManyRows?: Record<string, unknown>[];
   nonceUsed?: Set<string>;
   deliveries?: Set<string>;
+  attester?: ServerDeps['attester'];
 } = {}) {
   const nonceUsed = opts.nonceUsed ?? new Set<string>();
   const deliveries = opts.deliveries ?? new Set<string>();
@@ -90,7 +112,7 @@ function makeDeps(opts: {
     setHash: vi.fn(),
   };
   const config = cfg(opts.wallets ?? [SIGNER_LOWER]);
-  const deps = { arkiv, github, db, config } as unknown as ServerDeps;
+  const deps = { arkiv, github, db, config, attester: opts.attester } as unknown as ServerDeps;
   return { deps, arkiv, github, db, config };
 }
 
@@ -176,6 +198,57 @@ describe('GET query routes', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ formatBlock, chainId: 1 });
+    await app.close();
+  });
+
+  it('row WITH attestationUID+attester -> verified.efApproved true, public tier empty', async () => {
+    const ATT_UID = '0x' + 'a7'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const row = {
+      $key: '0xkey',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
+      attestationUID: { type: 'str', value: ATT_UID },
+      attester: { type: 'addr', value: ATT_SIGNER },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { verified: Record<string, unknown> };
+    expect(json.verified).toEqual({
+      efApproved: true,
+      efAttester: ATT_SIGNER,
+      efAttestationUID: ATT_UID,
+      publicVouches: 0,
+      rankedAttesters: [],
+    });
+    await app.close();
+  });
+
+  it('row WITHOUT attestation columns -> verified.efApproved false, public tier empty', async () => {
+    const row = {
+      $key: '0xkey',
+      chainId: { type: 'u64', value: 1n },
+      selector: { type: 'str', value: '0x12345678' },
+    };
+    const { deps } = makeDeps({ queryOneRow: row });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/descriptors/1/0xabc/0x12345678',
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { verified: Record<string, unknown> };
+    expect(json.verified).toEqual({
+      efApproved: false,
+      publicVouches: 0,
+      rankedAttesters: [],
+    });
+    expect(json.verified.efAttester).toBeUndefined();
     await app.close();
   });
 
@@ -542,6 +615,192 @@ describe('POST /decode — what-you’re-signing', () => {
   });
 });
 
+describe('POST /decode — permitAndCall unwrapping', () => {
+  const ROUTER = '0x111111125421ca6dc452d289314280a0f8842a65';
+  const PERMIT_AND_CALL = '0x5816d723';
+  const UNOSWAP = '0x83800a8e';
+
+  // Outer descriptor: permitAndCall(bytes permit, bytes action). Two fields, one
+  // per outer arg, so inner/permit can attach to their respective fields.
+  function permitAndCallRow() {
+    return rowWithBody(
+      {
+        functionName: 'permitAndCall',
+        contractName: 'AggregationRouterV6',
+        kind: 'calldata',
+        intent: 'Permit and swap',
+      },
+      {
+        $id: 'permitAndCall',
+        intent: 'Permit and swap',
+        __signature: 'permitAndCall(bytes permit, bytes action)',
+        fields: [
+          { format: 'raw', label: 'Permit', path: 'permit' },
+          { format: 'raw', label: 'Action', path: 'action' },
+        ],
+      },
+    );
+  }
+
+  // Inner descriptor: unoswap(uint256 token, uint256 amount, uint256 minReturn, uint256 dex).
+  function unoswapRow() {
+    return rowWithBody(
+      { functionName: 'unoswap', contractName: 'AggregationRouterV6', kind: 'calldata', intent: 'Swap' },
+      {
+        $id: 'unoswap',
+        intent: 'Swap',
+        __signature: 'unoswap(uint256 token, uint256 amount, uint256 minReturn, uint256 dex)',
+        fields: [
+          { format: 'raw', label: 'Token', path: 'token' },
+          { format: 'amount', label: 'Amount', path: 'amount' },
+        ],
+      },
+    );
+  }
+
+  // Dispatch the row by the requested selector so a single server can resolve
+  // both the outer permitAndCall and the inner unoswap lookups.
+  function depsBySelector(bySelector: Record<string, Record<string, unknown> | null>) {
+    const { deps, arkiv } = makeDeps();
+    arkiv.queryOneWithBody = vi.fn(
+      async (id: { selector: string }) => bySelector[id.selector] ?? null,
+    );
+    return { deps, arkiv };
+  }
+
+  // Build a full permitAndCall calldata: viem-encode permitAndCall(permit, innerCalldata)
+  // where innerCalldata is an encoded unoswap(...) call and permit is an EIP-2612 tuple.
+  async function buildPermitAndCallCalldata() {
+    const { encodeFunctionData, encodeAbiParameters, parseAbiParameters, parseAbiItem } =
+      await import('viem');
+    // Full EIP-2612 (224 bytes): (owner, spender, value, deadline, v, r, s).
+    const permit = encodeAbiParameters(
+      parseAbiParameters('address,address,uint256,uint256,uint8,bytes32,bytes32'),
+      [
+        `0x${'11'.repeat(20)}`,
+        `0x${'22'.repeat(20)}`,
+        2500n,
+        1999999999n,
+        27,
+        `0x${'aa'.repeat(32)}`,
+        `0x${'bb'.repeat(32)}`,
+      ],
+    );
+    const inner = encodeFunctionData({
+      abi: [parseAbiItem('function unoswap(uint256 token, uint256 amount, uint256 minReturn, uint256 dex)')],
+      functionName: 'unoswap',
+      args: [123n, 777n, 1n, 9n],
+    });
+    const calldata = encodeFunctionData({
+      abi: [parseAbiItem('function permitAndCall(bytes permit, bytes action)')],
+      functionName: 'permitAndCall',
+      args: [permit as `0x${string}`, inner],
+    });
+    return { calldata, permit, inner };
+  }
+
+  it('decodes outer, attaches inner (unoswap + Amount) and permit (eip2612)', async () => {
+    const { calldata } = await buildPermitAndCallCalldata();
+    const { deps } = depsBySelector({
+      [PERMIT_AND_CALL]: permitAndCallRow(),
+      [UNOSWAP]: unoswapRow(),
+    });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: ROUTER, calldata },
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as Record<string, any>;
+    expect(json.signing.functionName).toBe('permitAndCall');
+
+    const all = [...json.fields, ...json.hiddenFields];
+    const withInner = all.find((f: any) => f.inner);
+    expect(withInner).toBeDefined();
+    expect(withInner.inner.signing.functionName).toBe('unoswap');
+    const amount = [...withInner.inner.fields, ...withInner.inner.hiddenFields].find(
+      (f: any) => f.label === 'Amount',
+    );
+    expect(amount.value).toBe('777');
+
+    const withPermit = all.find((f: any) => f.permit);
+    expect(withPermit).toBeDefined();
+    expect(withPermit.permit.format).toBe('eip2612');
+    expect(withPermit.permit.fields.find((f: any) => f.label === 'Value')?.value).toBe('2500');
+    await app.close();
+  });
+
+  it('matches by selector 0x5816d723 even if the function name differs', async () => {
+    const { calldata } = await buildPermitAndCallCalldata();
+    const outer = permitAndCallRow();
+    // Column functionName says something else; selector match must still trigger.
+    outer.functionName = { type: 'str', value: 'mysteryWrapper' };
+    const { deps } = depsBySelector({
+      [PERMIT_AND_CALL]: outer,
+      [UNOSWAP]: unoswapRow(),
+    });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: ROUTER, calldata },
+    });
+    expect(res.statusCode).toBe(200);
+    const all = [...res.json().fields, ...res.json().hiddenFields];
+    expect(all.some((f: any) => f.inner)).toBe(true);
+    await app.close();
+  });
+
+  it('inner selector has no descriptor -> honest unknown inner, no throw', async () => {
+    const { calldata } = await buildPermitAndCallCalldata();
+    const { deps } = depsBySelector({
+      [PERMIT_AND_CALL]: permitAndCallRow(),
+      // no UNOSWAP descriptor
+    });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: ROUTER, calldata },
+    });
+    expect(res.statusCode).toBe(200);
+    const all = [...res.json().fields, ...res.json().hiddenFields];
+    const withInner = all.find((f: any) => f.inner);
+    expect(withInner).toBeDefined();
+    // Honest marker: inner carries the raw selector but is flagged unresolved.
+    expect(withInner.inner.signing.selector).toBe(UNOSWAP);
+    expect(withInner.inner.unresolved).toBe(true);
+    await app.close();
+  });
+
+  it('inner action bytes < 4 -> honest unknown inner, no throw', async () => {
+    const { encodeFunctionData, parseAbiItem, encodeAbiParameters, parseAbiParameters } =
+      await import('viem');
+    const permit = encodeAbiParameters(
+      parseAbiParameters('uint256,uint256,uint8,bytes32,bytes32'),
+      [1n, 2n, 27, `0x${'aa'.repeat(32)}`, `0x${'bb'.repeat(32)}`],
+    );
+    const calldata = encodeFunctionData({
+      abi: [parseAbiItem('function permitAndCall(bytes permit, bytes action)')],
+      functionName: 'permitAndCall',
+      args: [permit as `0x${string}`, '0x0102'], // 2 bytes, < 4
+    });
+    const { deps } = depsBySelector({ [PERMIT_AND_CALL]: permitAndCallRow() });
+    const app = buildServer(deps);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/decode',
+      payload: { chainId: 1, contract: ROUTER, calldata },
+    });
+    expect(res.statusCode).toBe(200);
+    const all = [...res.json().fields, ...res.json().hiddenFields];
+    const withInner = all.find((f: any) => f.inner);
+    expect(withInner?.inner.unresolved).toBe(true);
+    await app.close();
+  });
+});
+
 describe('POST /descriptors — signed write', () => {
   it('valid allowlisted signature: upsert + PR, returns entityKey/txHash/prUrl', async () => {
     const descriptor = oneRecordDescriptor();
@@ -584,6 +843,278 @@ describe('POST /descriptors — signed write', () => {
     expect(github.openDescriptorPR).toHaveBeenCalledWith(
       expect.objectContaining({ wallet: SIGNER_LOWER, action: 'create' }),
     );
+    await app.close();
+  });
+
+  it('with an EF attester: attests, patches the row with the UID, returns attested:true', async () => {
+    const descriptor = oneRecordDescriptor();
+    const ATT_UID = '0x' + 'a7'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const attest = vi.fn(async () => ({ uid: ATT_UID, attester: ATT_SIGNER }));
+    const { deps, arkiv } = makeDeps({
+      wallets: [SIGNER_LOWER],
+      attester: { attest },
+    });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 10n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      entityKey: string;
+      txHash: string;
+      prUrl: string;
+      attested: boolean;
+      attestationUID?: string;
+    };
+    expect(body.attested).toBe(true);
+    expect(body.attestationUID).toBe(ATT_UID);
+
+    // Attest is over the content hash (the subject of every attestation).
+    expect(attest).toHaveBeenCalledWith(msg.descriptorHash);
+
+    // The row is re-upserted carrying the UID + attester in WriteMeta.
+    const attestUpsert = arkiv.upsert.mock.calls.find(
+      (c) => (c[1] as { attestationUID?: string }).attestationUID === ATT_UID,
+    );
+    expect(attestUpsert).toBeDefined();
+    expect(attestUpsert![1]).toMatchObject({
+      attestationUID: ATT_UID,
+      attester: ATT_SIGNER,
+    });
+    await app.close();
+  });
+
+  it('attester throws: write still succeeds (200) with attested:false, no UID', async () => {
+    const descriptor = oneRecordDescriptor();
+    const attest = vi.fn(async () => {
+      throw new Error('EAS down');
+    });
+    const { deps } = makeDeps({ wallets: [SIGNER_LOWER], attester: { attest } });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 11n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      entityKey: string;
+      txHash: string;
+      prUrl: string;
+      attested: boolean;
+      attestationUID?: string;
+    };
+    expect(body.entityKey).toBe('0xentitykey');
+    expect(body.txHash).toBe('0xtxhash');
+    expect(body.prUrl).toBe('https://github.com/ef/registry/pull/1');
+    expect(body.attested).toBe(false);
+    expect(body.attestationUID).toBeUndefined();
+    await app.close();
+  });
+
+  it('multi-record descriptor: the UID is stamped on EVERY record, not just the first', async () => {
+    // A descriptor with two display formats yields two EntityRecords. An EF
+    // attestation is over the whole descriptor's content hash, so a query on
+    // either selector must surface the UID — stamping only records[0] leaves
+    // the second selector looking un-attested.
+    const descriptor = twoRecordDescriptor();
+    const ATT_UID = '0x' + 'b8'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const attest = vi.fn(async () => ({ uid: ATT_UID, attester: ATT_SIGNER }));
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER], attester: { attest } });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 20n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    // Every stamped (UID-bearing) upsert covers a distinct record. Two records
+    // -> two UID-bearing upserts, one per record identity.
+    const stamped = arkiv.upsert.mock.calls.filter(
+      (c) => (c[1] as { attestationUID?: string }).attestationUID === ATT_UID,
+    );
+    expect(stamped).toHaveLength(2);
+    const selectors = new Set(
+      stamped.map((c) => (c[0] as { selector?: string }).selector),
+    );
+    expect(selectors.size).toBe(2);
+    await app.close();
+  });
+
+  it('attest succeeds but the row patch fails: the real on-chain UID is NOT lost', async () => {
+    // attest() minted a real on-chain attestation (we hold the UID). If the
+    // follow-up row patch write then fails, we must still report attested:true
+    // with the UID — discarding a live attestation as attested:false is a
+    // false negative that silently drops trust state.
+    const descriptor = oneRecordDescriptor();
+    const ATT_UID = '0x' + 'c9'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const attest = vi.fn(async () => ({ uid: ATT_UID, attester: ATT_SIGNER }));
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER], attester: { attest } });
+    // First upsert (the mirror write) succeeds; the UID-patch upsert throws.
+    let call = 0;
+    arkiv.upsert.mockImplementation(async () => {
+      call += 1;
+      if (call === 1) return { entityKey: '0xentitykey', txHash: '0xtxhash', created: true };
+      throw new Error('arkiv patch failed');
+    });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 21n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { attested: boolean; attestationUID?: string };
+    expect(body.attested).toBe(true);
+    expect(body.attestationUID).toBe(ATT_UID);
+    await app.close();
+  });
+
+  it('attest patch returns a new tx: entityKey and txHash come from the SAME (patch) write', async () => {
+    // When the UID patch upserts, it produces its own entityKey+txHash pair.
+    // The response must return a matching pair from that final write, not an
+    // entityKey from the patch alongside a txHash from the pre-attest upsert.
+    const descriptor = oneRecordDescriptor();
+    const ATT_UID = '0x' + 'da'.repeat(32);
+    const ATT_SIGNER = '0x00000000000000000000000000000000000000ef';
+    const attest = vi.fn(async () => ({ uid: ATT_UID, attester: ATT_SIGNER }));
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER], attester: { attest } });
+    let call = 0;
+    arkiv.upsert.mockImplementation(async () => {
+      call += 1;
+      return call === 1
+        ? { entityKey: '0xmirror', txHash: '0xmirrortx', created: true }
+        : { entityKey: '0xpatched', txHash: '0xpatchtx', created: false };
+    });
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 22n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { entityKey: string; txHash: string };
+    expect(body.entityKey).toBe('0xpatched');
+    expect(body.txHash).toBe('0xpatchtx'); // NOT '0xmirrortx'
+    await app.close();
+  });
+
+  it('no attester configured: write succeeds with attested:false and no attest call', async () => {
+    const descriptor = oneRecordDescriptor();
+    const { deps, arkiv } = makeDeps({ wallets: [SIGNER_LOWER] }); // no attester
+    const app = buildServer(deps);
+    const msg: DescriptorWriteMessage = {
+      descriptorHash: descriptorHash(descriptor),
+      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce: 12n,
+      action: 'create',
+    };
+    const signature = await signMessage(msg);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descriptors',
+      payload: {
+        descriptor,
+        message: {
+          descriptorHash: msg.descriptorHash,
+          deadline: msg.deadline.toString(),
+          nonce: msg.nonce.toString(),
+          action: 'create',
+        },
+        signature,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { attested: boolean; attestationUID?: string };
+    expect(body.attested).toBe(false);
+    expect(body.attestationUID).toBeUndefined();
+    // Only the single content upsert — no attestation patch upsert.
+    expect(arkiv.upsert).toHaveBeenCalledTimes(1);
     await app.close();
   });
 

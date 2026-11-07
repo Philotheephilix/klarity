@@ -1,0 +1,26 @@
+{
+  "name": "@klarity/snap",
+  "version": "0.1.0",
+  "description": "Klarity clear-signing MetaMask Snap",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/klarity/klarity.git"
+  },
+  "main": "src/index.ts",
+  "scripts": {
+    "prebuild": "cd ../sdk && npx tsc",
+    "build": "mm-snap build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@klarity/sdk": "file:../sdk",
+    "@metamask/snaps-sdk": "10.4.0"
+  },
+  "devDependencies": {
+    "@metamask/snaps-cli": "8.4.1",
+    "@types/node": "^22",
+    "typescript": "^5",
+    "vitest": "^2"
+  }
+}
