@@ -54,15 +54,15 @@ export default function CallsPage({
 
   return (
     <>
-      <div className="crumbs">
+      <nav className="crumbs" aria-label="Breadcrumb">
         <Link href="/">Home</Link>
-        <span>/</span>
+        <span aria-hidden="true">/</span>
         <Link href={`/${entity}`}>{entity}</Link>
-        <span>/</span>
-        <span>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">
           {chainId}:{address.slice(0, 10)}...
         </span>
-      </div>
+      </nav>
       <div className="page-head">
         <h1 className="page-title page-title-xl">Calls</h1>
         <p className="page-sub">

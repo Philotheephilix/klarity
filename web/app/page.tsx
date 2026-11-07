@@ -213,24 +213,30 @@ function DashboardBody({ vm }: { vm: DashboardVM }) {
             </button>
           </div>
           <ul className="dash-rows">
-            {vm.recent.map((r, i) => (
-              <li className="dash-row" key={`${r.chainId}:${r.contract}:${r.selector}:${i}`}>
-                <span className="dash-row-ico" aria-hidden="true">
-                  {monogram(r.functionName || r.contractName || r.entityName)}
-                </span>
-                <span className="dash-row-text">
-                  <span className="dash-row-title">
-                    {r.functionName || r.intent || r.selector}
-                  </span>
-                  <span className="dash-row-sub">
-                    {r.entityName} · {shortAddress(r.contract)}
-                  </span>
-                </span>
-                <span className="dash-row-kind" data-kind={r.kind}>
-                  {r.kind}
-                </span>
+            {vm.recent.length === 0 ? (
+              <li className="dash-row">
+                <span className="dash-row-sub">No descriptors mirrored yet.</span>
               </li>
-            ))}
+            ) : (
+              vm.recent.map((r, i) => (
+                <li className="dash-row" key={`${r.chainId}:${r.contract}:${r.selector}:${i}`}>
+                  <span className="dash-row-ico" aria-hidden="true">
+                    {monogram(r.functionName || r.contractName || r.entityName)}
+                  </span>
+                  <span className="dash-row-text">
+                    <span className="dash-row-title">
+                      {r.functionName || r.intent || r.selector}
+                    </span>
+                    <span className="dash-row-sub">
+                      {r.entityName} · {shortAddress(r.contract)}
+                    </span>
+                  </span>
+                  <span className="dash-row-kind" data-kind={r.kind}>
+                    {r.kind}
+                  </span>
+                </li>
+              ))
+            )}
           </ul>
         </div>
       </section>

@@ -24,11 +24,11 @@ export default function BrowsePage() {
 
   return (
     <>
-      <div className="crumbs">
+      <nav className="crumbs" aria-label="Breadcrumb">
         <span>Home</span>
-        <span>/</span>
-        <span>Explore</span>
-      </div>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">Explore</span>
+      </nav>
       <div className="page-head">
         <h1 className="page-title page-title-xl">Companies</h1>
         <p className="page-sub">

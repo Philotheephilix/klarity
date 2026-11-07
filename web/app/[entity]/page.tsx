@@ -71,13 +71,13 @@ export default function ContractsPage({
 
   return (
     <>
-      <div className="crumbs">
+      <nav className="crumbs" aria-label="Breadcrumb">
         <Link href="/browse">Home</Link>
-        <span>/</span>
+        <span aria-hidden="true">/</span>
         <Link href="/browse">Companies</Link>
-        <span>/</span>
-        <span>{entity}</span>
-      </div>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">{entity}</span>
+      </nav>
       <div className="page-head">
         <h1 className="page-title page-title-xl">{entity}</h1>
         <p className="page-sub">Contracts mirrored for this company.</p>

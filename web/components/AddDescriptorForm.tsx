@@ -191,7 +191,14 @@ export function AddDescriptorForm() {
       setResult(res);
       toast.show('Descriptor written — PR opened.');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const raw = e instanceof Error ? e.message : String(e);
+      // Preserve the raw error for debugging regardless of what we surface.
+      console.error(e);
+      setError(
+        /status 5\d\d|Transaction failed|Execution error/i.test(raw)
+          ? 'The write could not be completed — the network or signing service rejected it. Check your wallet and try again.'
+          : raw,
+      );
     } finally {
       setBusy(false);
     }
@@ -305,18 +312,21 @@ export function AddDescriptorForm() {
               value={f.label}
               onChange={(e) => updateField(i, 'label', e.target.value)}
               placeholder="Label (e.g. Commands)"
+              aria-label={`Field ${i + 1} label`}
             />
             <input
               className="add-input"
               value={f.path}
               onChange={(e) => updateField(i, 'path', e.target.value)}
               placeholder="Path (e.g. commands)"
+              aria-label={`Field ${i + 1} path`}
             />
             <input
               className="add-input add-input-narrow"
               value={f.format}
               onChange={(e) => updateField(i, 'format', e.target.value)}
               placeholder="raw"
+              aria-label={`Field ${i + 1} format`}
             />
             <button
               type="button"
@@ -353,15 +363,21 @@ export function AddDescriptorForm() {
               <code>{result.attestationUID ?? 'attested'}</code>
             </div>
           ) : null}
-          <a
-            className="dash-btn dash-btn-primary add-pr-link"
-            href={result.prUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            View pull request
-            <IconArrowUpRight size={16} />
-          </a>
+          {result.prUrl ? (
+            <a
+              className="dash-btn dash-btn-primary add-pr-link"
+              href={result.prUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View pull request
+              <IconArrowUpRight size={16} />
+            </a>
+          ) : (
+            <div className="add-success-row">
+              <span>Write succeeded; no PR URL returned.</span>
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -372,6 +388,10 @@ export function AddDescriptorForm() {
       >
         {busy ? 'Submitting…' : 'Sign & submit'}
       </button>
+
+      {!wallet && !busy ? (
+        <span className="add-hint">Connect a wallet to submit.</span>
+      ) : null}
 
       <p className="add-foot">
         The connected wallet signs an EIP-712 write; only an allowlisted wallet

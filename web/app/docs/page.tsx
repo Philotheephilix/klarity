@@ -117,11 +117,11 @@ const DECODE_RESPONSE = `{
 export default function DocsPage() {
   return (
     <>
-      <div className="crumbs">
+      <nav className="crumbs" aria-label="Breadcrumb">
         <Link href="/">Home</Link>
-        <span>/</span>
-        <span>Docs</span>
-      </div>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">Docs</span>
+      </nav>
       <div className="page-head">
         <h1 className="page-title page-title-xl">API Reference</h1>
         <p className="page-sub">
@@ -137,7 +137,7 @@ export default function DocsPage() {
         </p>
       </div>
 
-      <div className="card-grid">
+      <div className="docs-list">
         <Card>
           <div className="card-pad">
             <div className="card-title">GET /descriptors</div>
