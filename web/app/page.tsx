@@ -36,6 +36,19 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <div className="dash-links" aria-label="Live deployments">
+        <span className="dash-links-label">Live:</span>
+        <a className="dash-btn dash-btn-ghost" href="https://klarity.eth.limo" target="_blank" rel="noreferrer">
+          Wallet
+        </a>
+        <a className="dash-btn dash-btn-ghost" href="https://klarity-installer.vercel.app" target="_blank" rel="noreferrer">
+          Snap Installer
+        </a>
+        <a className="dash-btn dash-btn-ghost" href="https://www.npmjs.com/package/@philotheephilix/klarity-snap" target="_blank" rel="noreferrer">
+          Snap on npm
+        </a>
+      </div>
+
       {state.status === 'loading' ? <LoadingCard label="Loading dashboard" /> : null}
       {state.status === 'error' ? <ErrorCard error={state.error} /> : null}
       {state.status === 'ready' ? <DashboardBody vm={state.data} /> : null}

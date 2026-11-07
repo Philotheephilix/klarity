@@ -60,6 +60,19 @@ GitHub gives you the data when its servers are up and you have finished parsing 
 
 ---
 
+## The wallet closes the loop
+
+The sharpest case for *why this data belongs on a decentralized substrate* is the
+consumer we built on top of it: the **Klarity Wallet** — an ERC-4337 smart account
+whose UI is served with no host we run (IPFS CIDv1, or on-chain via
+[ERC-8244](https://ethereum-magicians.org/t/erc-8244-contract-hosted-application-html/28407)
+`html()`), whose RPC rides an anonymizing transport, and which is reached as
+`klarity.eth`. A wallet engineered to have no single point of failure cannot then
+depend on a clear-signing feed with one — GitHub. Reading its security data from
+Arkiv is the only configuration where the whole path, UI to signing data, is
+equally un-takedownable. (Full wallet architecture:
+[`klarity-wallet`](https://github.com/Philotheephilix/klarity-wallet).)
+
 ## Sources (verified) and honesty note
 
 - ERC-7730 standard — clear signing, "lower end-user risk from frontend and phishing attacks," and the security section naming "front-end/CDN compromise" and "registry poisoning": <https://eips.ethereum.org/EIPS/eip-7730> (verified).

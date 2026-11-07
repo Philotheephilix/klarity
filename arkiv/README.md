@@ -22,6 +22,15 @@ it always-on, verifiable, and impossible to take down.
   ownership, deterministic upsert, and expiration. Authoritative definition lives
   in `src/arkiv/schema.ts`.
 
+## Built on top of this data
+
+- **[Klarity Wallet](https://github.com/Philotheephilix/klarity-wallet)** — an
+  indestructible, censorship-resistant ERC-4337 smart account (UI via IPFS /
+  ERC-8244 on-chain `html()`, anonymous RPC, reached as `klarity.eth`) that reads
+  this Arkiv registry to clear-sign every transaction. The reference consumer for
+  *why* this data belongs on a decentralized substrate (see
+  [`why-arkiv.md`](why-arkiv.md)).
+
 ## Verify it yourself
 
 The repo [`README`](../README.md) gives the service wallet address, one runnable

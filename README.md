@@ -1,6 +1,6 @@
 # Klarity
 
-**Decentralized, always-available clear-signing data for Ethereum — because wallet security should not depend on GitHub's uptime.**
+**Decentralized, always-available clear-signing for Ethereum — a security data layer *and* an indestructible wallet, because wallet security should not depend on anyone's uptime.**
 
 ## 🚀 Live deployment
 
@@ -11,6 +11,7 @@
 | **MetaMask Snap** (published, live backend baked in) | **`npm:@philotheephilix/klarity-snap`** — [npm](https://www.npmjs.com/package/@philotheephilix/klarity-snap) |
 | **Read / decode API** (queryable registry mirror) | **https://mcp.philotheephilix.in/mumbai/klarity-api** |
 | **Pitch deck** | **https://klarity-explorer.vercel.app/pitch** |
+| **Klarity Wallet** (indestructible, censorship-resistant smart account) | **`klarity.eth`** — [Open wallet](https://klarity.eth.limo) · [klarity-wallet repo](https://github.com/Philotheephilix/klarity-wallet) |
 
 Quick check the API is live:
 
@@ -19,6 +20,29 @@ curl "https://mcp.philotheephilix.in/mumbai/klarity-api/descriptors?entityName=a
 ```
 
 See [Deployment](#deployment) for how each piece is hosted.
+
+## The Klarity Wallet
+
+Clear-signing data only helps if the wallet reading it can't itself be taken down.
+So Klarity also ships an **indestructible, censorship-resistant Ethereum wallet** —
+an ERC-4337 smart account controlled by a WebAuthn/passkey (no seed phrase),
+built so that no server we run and no single point of infrastructure can kill it:
+
+- **UI with no host** — the interface is delivered from content-addressed storage
+  (IPFS CIDv1) *or* directly from a contract via
+  [ERC-8244](https://ethereum-magicians.org/t/erc-8244-contract-hosted-application-html/28407)
+  (`html()` served on-chain), rendered in a null-origin sandboxed iframe.
+- **Anonymous RPC** — every `eth_call` and bundler POST rides an anonymizing
+  transport ([`@anon-rpc`](https://www.npmjs.com/package/@anon-rpc/browser-harness):
+  passthrough / Tor gateway / Nym) in a hash-pinned sandboxed worker; the
+  destination RPC never sees who is asking.
+- **Name-addressed** — reachable as **`klarity.eth`**, whose ENS contenthash points
+  at the pinned CID, so the name is the stable entry point and the UI behind it can
+  be re-pinned without moving.
+
+No seed phrase, no server we run, name-addressed, content-addressed, anonymized.
+**Full architecture and the five delivery/transport subsystems live in the
+[`klarity-wallet`](https://github.com/Philotheephilix/klarity-wallet) repo.**
 
 ## Why this exists
 
@@ -208,6 +232,7 @@ Klarity ships as four independently-hosted pieces. The table in
 | **Explorer** | `web/` (Next.js 15 / React 19) | Vercel (`klarity-explorer`) | `vercel --prod`; `NEXT_PUBLIC_KLARITY_API_BASE` → the live API |
 | **Snap installer** | `snap/.scratch/connect.html` (static page) | Vercel (`klarity-installer`) | static deploy; `SNAP_ID = npm:@philotheephilix/klarity-snap` |
 | **MetaMask Snap** | `snap/` (`mm-snap build` → `dist/bundle.js`) | npm registry | `npm publish --access public`; the live API URL is baked into the bundle |
+| **Klarity Wallet** | [`klarity-wallet`](https://github.com/Philotheephilix/klarity-wallet) repo | No host we run — IPFS (CIDv1) + ERC-8244 on-chain `html()`, named via ENS | pin `dist/` → IPFS, write the CID into `klarity.eth` contenthash, and/or deploy `HtmlHost.sol`; RPC tunneled through the anon transport |
 
 ### API server (Docker + Caddy)
 

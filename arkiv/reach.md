@@ -54,3 +54,11 @@ The Arkiv mirror (`sourcePath`-faithful, keyed by the same identity the ecosyste
 The source has exactly one access pattern: clone or hit the rate-limited GitHub contents API, then parse a directory tree. That is a real tax, and it is the reason most would-be consumers never integrate clear signing at all. The Arkiv copy is a **queryable, composable, globally-readable, no-gatekeeper** dataset — any developer anywhere queries it by the keys they actually search on, without asking anyone for access and without standing up an indexer. Lowering the integration cost is how a dataset that *should* be everywhere actually gets there.
 
 > Every count above is reproducible: the README links the canonical repo and a runnable query, and `scripts/analyze.mjs` regenerates the file/entity/chain counts from a fresh clone.
+
+## A first-party consumer, already building on it
+
+The Arkiv copy already has a committed consumer: the **Klarity Wallet** — a
+censorship-resistant ERC-4337 smart account (UI via IPFS / ERC-8244, anonymous
+RPC, reached as `klarity.eth`) that reads this registry to clear-sign every
+transaction. It is the reference case for who queries the mirror after the event
+and why. See [`klarity-wallet`](https://github.com/Philotheephilix/klarity-wallet).
